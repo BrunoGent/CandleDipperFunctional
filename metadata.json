@@ -1,0 +1,6 @@
+{
+  "name": "Bee Mine Candle Dipper",
+  "description": "DisplayManager C++ refactoring and interactive UI viewer for Bee Mine Candle Dipper M5Stack CoreS3 SE.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

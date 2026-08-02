@@ -1,0 +1,30 @@
+#include "SensorManager.h"
+
+SensorManager::SensorManager() 
+  : _topLimitHit(false), _capSensorTriggered(false), _lastDebounceTime(0) {}
+
+void SensorManager::begin() {
+  // Configured with internal pull-ups if needed, hardware NC config typically pulls LOW or HIGH
+  pinMode(PIN_TOP_LIMIT_SW, INPUT_PULLUP);
+  pinMode(PIN_WAX_LEVEL_SENS, INPUT_PULLUP);
+  update();
+}
+
+bool SensorManager::readRawTopLimit() {
+  // Mechanical Home Switch (NC config): Pin reads LOW when pressed/triggered
+  return (digitalRead(PIN_TOP_LIMIT_SW) == LOW);
+}
+
+bool SensorManager::readRawCapSensor() {
+  // Capacitive Sensor via Optocoupler: Active LOW or HIGH depending on optocoupler stage
+  return (digitalRead(PIN_WAX_LEVEL_SENS) == LOW);
+}
+
+void SensorManager::update() {
+  // Non-blocking 10ms debounce check
+  if (millis() - _lastDebounceTime >= 10) {
+    _lastDebounceTime = millis();
+    _topLimitHit = readRawTopLimit();
+    _capSensorTriggered = readRawCapSensor();
+  }
+}
