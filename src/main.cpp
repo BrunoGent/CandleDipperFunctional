@@ -138,13 +138,27 @@ void setup() {
   data.s_stdDips    = prefs.getInt("s3", 25);
   data.s_dip1Time   = prefs.getInt("s4", 10);
   data.s_subDipTime = prefs.getInt("s5", 4);
-  data.s_downSpeed  = prefs.getInt("s6", 50);
-  data.s_upSpeed    = prefs.getInt("s7", 60);
+  data.s_upSpeed    = prefs.getInt("s6", 60);
+  data.s_downSpeed  = prefs.getInt("s7", 50);
   data.s_colLimit   = prefs.getInt("s8", -50); 
   data.s_brightness = prefs.getInt("bright", 50);
   data.s_theme      = prefs.getInt("theme", 1);
   data.wifiSSID     = prefs.getString("wssid", "Trooli_BB00");
   String wifiPass   = prefs.getString("wpass", "4_j4p4mM3d");
+
+  // Load 5-entry rotating timing history for 4 process types
+  for (int t = 0; t < 4; t++) {
+    char kHead[16], kCount[16];
+    snprintf(kHead, sizeof(kHead), "hh_%d", t);
+    snprintf(kCount, sizeof(kCount), "hc_%d", t);
+    data.historyHead[t] = prefs.getInt(kHead, 0);
+    data.historyCount[t] = prefs.getInt(kCount, 0);
+    for (int i = 0; i < 5; i++) {
+      char kHist[16];
+      snprintf(kHist, sizeof(kHist), "h_%d_%d", t, i);
+      data.processHistory[t][i] = prefs.getInt(kHist, 0);
+    }
+  }
 
   // Initialize Hardware Managers
   sensorMgr.begin();
@@ -179,6 +193,22 @@ void setup() {
 
   delay(1000);
   display.markPageChanged(true);
+}
+
+void saveProcessHistoryToPrefs() {
+  DisplayData& data = display.getData();
+  for (int t = 0; t < 4; t++) {
+    char kHead[16], kCount[16];
+    snprintf(kHead, sizeof(kHead), "hh_%d", t);
+    snprintf(kCount, sizeof(kCount), "hc_%d", t);
+    prefs.putInt(kHead, data.historyHead[t]);
+    prefs.putInt(kCount, data.historyCount[t]);
+    for (int i = 0; i < 5; i++) {
+      char kHist[16];
+      snprintf(kHist, sizeof(kHist), "h_%d_%d", t, i);
+      prefs.putInt(kHist, data.processHistory[t][i]);
+    }
+  }
 }
 
 void loop() {
@@ -301,6 +331,7 @@ void loop() {
 
     case UI_EVENT_START_DIP:
       Serial.println("UI Event: Starting dipping process...");
+      saveProcessHistoryToPrefs();
       break;
 
     case UI_EVENT_ABORT_DIP:

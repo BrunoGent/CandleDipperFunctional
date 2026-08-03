@@ -83,11 +83,18 @@ struct DisplayData {
   unsigned long dipStartTime = 0;
   unsigned long lastUiTick = 0;
   int estimatedTotalSeconds = 0;
+  int finalElapsedSeconds = 0;
   bool isActiveWeightBased = true;
   bool isActiveSlimProfile = true;
   bool dipWasAborted = false;
   int currentDipCount = 0;
   String currentPhaseText = "Starting...";
+
+  // Rotating 5-entry history for 4 process types:
+  // 0: Slim Weight, 1: Std Weight, 2: Slim Dips, 3: Std Dips
+  int processHistory[4][5] = {{0}};
+  int historyCount[4] = {0};
+  int historyHead[4] = {0};
 
   // Network & Portal State
   String wifiSSID = "Trooli_BB00";
@@ -109,9 +116,11 @@ public:
   void renderCurrentPage();
   UiEvent updateTouch();
 
-  // Process Controls
+  // Process Controls & History
   void startDippingProcess(bool isWeight, bool isSlim);
-  void endDippingProcess(bool aborted);
+  void endDippingProcess(bool aborted, int elapsedSeconds = 0);
+  int getAverageTime(bool isWeight, bool isSlim) const;
+  void recordCompletedProcess(bool isWeight, bool isSlim, int seconds);
 
   // Data Accessors & Mutators
   DisplayData& getData() { return data; }

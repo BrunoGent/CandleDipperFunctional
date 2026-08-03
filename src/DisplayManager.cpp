@@ -3,7 +3,7 @@
 // Setting metadata arrays
 static const char* settingNames[9] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
-  "1st Dip Time", "Sub. Dip Time", "Down Speed", "Up Speed", "Col. Limit"
+  "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit"
 };
 static const char* settingUnits[9] = { "g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g" };
 static const char* themeNames[3] = { "Original", "Bee Mine", "Dark Mode" };
@@ -84,8 +84,8 @@ int DisplayManager::getSettingValue(int index) const {
      case 3: return data.s_stdDips;
      case 4: return data.s_dip1Time; 
      case 5: return data.s_subDipTime; 
-     case 6: return data.s_downSpeed; 
-     case 7: return data.s_upSpeed;
+     case 6: return data.s_upSpeed; 
+     case 7: return data.s_downSpeed;
      case 8: return data.s_colLimit;
   }
   return 0;
@@ -99,8 +99,8 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 3: data.s_stdDips = val; break;
      case 4: data.s_dip1Time = val; break;
      case 5: data.s_subDipTime = val; break;
-     case 6: data.s_downSpeed = val; break;
-     case 7: data.s_upSpeed = val; break;
+     case 6: data.s_upSpeed = val; break;
+     case 7: data.s_downSpeed = val; break;
      case 8: data.s_colLimit = -abs(val); break;
   }
 }
@@ -317,6 +317,45 @@ void DisplayManager::drawNumpad() {
   drawButton(245, 146, 50, 53, "OK", TFT_DARKGREEN, TFT_WHITE);
 }
 
+static void formatPrettyDuration(int totalSeconds, char* buffer, size_t bufferSize) {
+  int m = totalSeconds / 60;
+  int s = totalSeconds % 60;
+  if (m > 0) {
+    snprintf(buffer, bufferSize, "%dm %ds", m, s);
+  } else {
+    snprintf(buffer, bufferSize, "%ds", s);
+  }
+}
+
+static int getProcessTypeIndex(bool isWeight, bool isSlim) {
+  if (isWeight && isSlim) return 0;       // Slim Weight
+  if (isWeight && !isSlim) return 1;      // Std Weight
+  if (!isWeight && isSlim) return 2;      // Slim Dips
+  return 3;                               // Std Dips
+}
+
+int DisplayManager::getAverageTime(bool isWeight, bool isSlim) const {
+  int idx = getProcessTypeIndex(isWeight, isSlim);
+  int cnt = data.historyCount[idx];
+  if (cnt <= 0) return 0;
+  long sum = 0;
+  for (int i = 0; i < cnt; i++) {
+    sum += data.processHistory[idx][i];
+  }
+  return (int)(sum / cnt);
+}
+
+void DisplayManager::recordCompletedProcess(bool isWeight, bool isSlim, int seconds) {
+  if (seconds <= 0) return;
+  int idx = getProcessTypeIndex(isWeight, isSlim);
+  int head = data.historyHead[idx];
+  data.processHistory[idx][head] = seconds;
+  data.historyHead[idx] = (head + 1) % 5;
+  if (data.historyCount[idx] < 5) {
+    data.historyCount[idx]++;
+  }
+}
+
 void DisplayManager::drawActiveDipPage() {
   canvas.fillScreen(c_bg);
   drawTopBanner();
@@ -330,10 +369,14 @@ void DisplayManager::drawActiveDipPage() {
   formatTime(elapsedSeconds, elapsedStr, sizeof(elapsedStr));
   formatTime(data.estimatedTotalSeconds, estStr, sizeof(estStr));
 
-  char timeStr[64]; snprintf(timeStr, sizeof(timeStr), "Time: %s / %s", elapsedStr, estStr);
+  // Display "(est)" next to estimated total time as requested
+  char timeStr[64]; snprintf(timeStr, sizeof(timeStr), "Time: %s / %s (est)", elapsedStr, estStr);
   char targetStr[64];
-  if (data.isActiveWeightBased) snprintf(targetStr, sizeof(targetStr), "Weight: %dg / %dg", (int)data.currentWeight, (data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt));
-  else snprintf(targetStr, sizeof(targetStr), "Dips: %d / %d", data.currentDipCount, (data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips));
+  if (data.isActiveWeightBased) {
+    snprintf(targetStr, sizeof(targetStr), "Weight: %dg / %dg", (int)data.currentWeight, (data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt));
+  } else {
+    snprintf(targetStr, sizeof(targetStr), "Dips: %d / %d", data.currentDipCount, (data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips));
+  }
 
   canvas.setTextDatum(middle_center);
   canvas.setTextColor(TFT_ORANGE, c_bg);
@@ -357,9 +400,41 @@ void DisplayManager::drawDipDonePage() {
   canvas.fillScreen(c_bg); 
   drawTopBanner();
   canvas.setTextDatum(middle_center); 
-  canvas.setTextColor(TFT_WHITE, c_bg);
-  canvas.drawString("Process Finished", 160, 90);
-  drawButton(10, 144, 300, 80, "FINISH", c_active, TFT_BLACK);
+
+  char prettyTime[32];
+  formatPrettyDuration(data.finalElapsedSeconds, prettyTime, sizeof(prettyTime));
+
+  const char* candleType = data.isActiveSlimProfile ? "Slim" : "Std.";
+
+  if (!data.dipWasAborted) {
+    // Success Screen
+    char line1[64];
+    snprintf(line1, sizeof(line1), "Success! %s ready", candleType);
+
+    char line2[64];
+    snprintf(line2, sizeof(line2), "Completed in %s", prettyTime);
+
+    canvas.setTextColor(canvas.color565(130, 230, 130), c_bg); // Soft pastel green
+    canvas.drawString(line1, 160, 75);
+    canvas.setTextColor(TFT_WHITE, c_bg);
+    canvas.drawString(line2, 160, 115);
+
+    drawButton(10, 144, 300, 75, "FINISH", c_active, TFT_BLACK);
+  } else {
+    // Cancelled Screen
+    char line1[64];
+    snprintf(line1, sizeof(line1), "%s cancelled", candleType);
+
+    char line2[64];
+    snprintf(line2, sizeof(line2), "Cancelled at %s", prettyTime);
+
+    canvas.setTextColor(TFT_RED, c_bg);
+    canvas.drawString(line1, 160, 75);
+    canvas.setTextColor(TFT_WHITE, c_bg);
+    canvas.drawString(line2, 160, 115);
+
+    drawButton(10, 144, 300, 75, "BACK", c_btn2, TFT_WHITE);
+  }
 }
 
 void DisplayManager::renderCurrentPage() {
@@ -412,14 +487,33 @@ void DisplayManager::startDippingProcess(bool isWeight, bool isSlim) {
   data.dipStartTime = millis(); 
   data.dipWasAborted = false; 
   data.currentDipCount = 0;
-  data.currentPhaseText = "Lowering...";
-  data.estimatedTotalSeconds = (isSlim ? data.s_slimDips : data.s_stdDips) * (data.s_dip1Time + data.s_subDipTime + 5); 
+  data.finalElapsedSeconds = 0;
+  data.currentPhaseText = "Starting process...";
+
+  int avg = getAverageTime(isWeight, isSlim);
+  if (avg > 0) {
+    data.estimatedTotalSeconds = avg;
+  } else {
+    int targetDips = isSlim ? data.s_slimDips : data.s_stdDips;
+    data.estimatedTotalSeconds = targetDips * (data.s_dip1Time + data.s_subDipTime + 6);
+  }
+
   data.currentPage = PAGE_ACTIVE_DIP; 
   data.pageChanged = true;
 }
 
-void DisplayManager::endDippingProcess(bool aborted) {
+void DisplayManager::endDippingProcess(bool aborted, int elapsedSeconds) {
   data.dipWasAborted = aborted; 
+  if (elapsedSeconds > 0) {
+    data.finalElapsedSeconds = elapsedSeconds;
+  } else {
+    data.finalElapsedSeconds = (int)((millis() - data.dipStartTime) / 1000);
+  }
+
+  if (!aborted) {
+    recordCompletedProcess(data.isActiveWeightBased, data.isActiveSlimProfile, data.finalElapsedSeconds);
+  }
+
   data.currentPage = PAGE_DIP_DONE; 
   data.pageChanged = true;
 }

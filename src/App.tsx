@@ -522,9 +522,13 @@ export default function App() {
     }
   };
 
-  const settingNames = ["Slim Weight", "Std Weight", "Slim Dips", "Std Dips", "1st Dip Time", "Sub. Dip Time", "Down Speed", "Up Speed", "Col. Limit"];
+  const settingNames = ["Slim Weight", "Std Weight", "Slim Dips", "Std Dips", "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit"];
   const settingUnits = ["g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g"];
-  const [settingValues, setSettingValues] = useState<number[]>([1500, 2500, 15, 25, 10, 4, 50, 60, -50]);
+  const [settingValues, setSettingValues] = useState<number[]>([1500, 2500, 15, 25, 10, 4, 60, 50, -50]);
+  const [dipAborted, setDipAborted] = useState(false);
+  const [finalDurationSecs, setFinalDurationSecs] = useState(134);
+  const [activeIsSlim, setActiveIsSlim] = useState(true);
+  const [activeIsWeight, setActiveIsWeight] = useState(true);
 
   const copyCode = (text: string, filename: string) => {
     navigator.clipboard.writeText(text);
@@ -735,7 +739,7 @@ export default function App() {
                     ) : page === 10 ? (
                       <span className="mx-auto font-sans">CONFIRM ABORT</span>
                     ) : page === 11 ? (
-                      <span className="mx-auto font-sans">PROCESS COMPLETE</span>
+                      <span className="mx-auto font-sans">{dipAborted ? 'PROCESS CANCELLED' : 'PROCESS COMPLETE'}</span>
                     ) : (
                       <>
                         <span className="font-sans">Thu 01/01/26</span>
@@ -752,14 +756,14 @@ export default function App() {
                         {subState === 0 ? (
                           <>
                             <button
-                              onClick={() => { setSubState(1); setLastEvent('Selected SLIM profile'); }}
+                              onClick={() => { setSubState(1); setActiveIsSlim(true); setActiveIsWeight(page === 0); setLastEvent('Selected SLIM profile'); }}
                               className="flex-1 h-24 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center"
                               style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
                             >
                               SLIM
                             </button>
                             <button
-                              onClick={() => { setSubState(2); setLastEvent('Selected STANDARD profile'); }}
+                              onClick={() => { setSubState(2); setActiveIsSlim(false); setActiveIsWeight(page === 0); setLastEvent('Selected STANDARD profile'); }}
                               className="flex-1 h-24 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center"
                               style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
                             >
@@ -768,7 +772,7 @@ export default function App() {
                           </>
                         ) : (
                           <button
-                            onClick={() => { setPage(9); setLastEvent('Started Dipping Process'); }}
+                            onClick={() => { setPage(9); setDipAborted(false); setLastEvent('Started Dipping Process'); }}
                             className="w-full h-24 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex items-center justify-center"
                             style={{ backgroundColor: ts.activeBg, color: '#000000' }}
                           >
@@ -961,9 +965,11 @@ export default function App() {
                     {/* Page 9: Active Dip */}
                     {page === 9 && (
                       <div className="w-full h-full flex flex-col items-center justify-center gap-1 p-2 text-center text-xs">
-                        <span className="text-amber-400 font-bold">Lowering...</span>
-                        <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Time: 00:04 / 02:45</span>
-                        <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Weight: 120g / 1500g</span>
+                        <span className="text-amber-400 font-bold">Dip 1: Lowering...</span>
+                        <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Time: 00:04 / 02:45 (est)</span>
+                        <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>
+                          {activeIsWeight ? 'Weight: 120g / 1500g' : 'Dips: 1 / 15'}
+                        </span>
                         <button
                           onClick={() => setPage(10)}
                           className="mt-2 w-full py-1.5 rounded-lg border border-red-500 text-red-400 font-bold text-[10px]"
@@ -979,16 +985,51 @@ export default function App() {
                         <span className="text-white text-xs font-bold">Abort current dipping?</span>
                         <div className="flex items-center gap-3 w-full px-4">
                           <button onClick={() => setPage(9)} className="flex-1 py-3 rounded-xl font-bold text-xs text-white" style={{ backgroundColor: ts.outlineBg }}>NO</button>
-                          <button onClick={() => setPage(11)} className="flex-1 py-3 rounded-xl font-bold text-xs bg-red-600 text-white">YES</button>
+                          <button 
+                            onClick={() => { setDipAborted(true); setFinalDurationSecs(45); setPage(11); setLastEvent('Dipping cancelled by user'); }} 
+                            className="flex-1 py-3 rounded-xl font-bold text-xs bg-red-600 text-white"
+                          >
+                            YES
+                          </button>
                         </div>
                       </div>
                     )}
 
                     {/* Page 11: Dip Done */}
                     {page === 11 && (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-center">
-                        <span className="text-white text-xs font-bold">Process Finished</span>
-                        <button onClick={() => { setPage(0); setSubState(0); }} className="w-full py-3 rounded-xl font-bold text-xs text-black" style={{ backgroundColor: ts.activeBg }}>FINISH</button>
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-center">
+                        {dipAborted ? (
+                          <>
+                            <span className="text-red-400 text-sm font-bold">
+                              {activeIsSlim ? 'Slim cancelled' : 'Std. cancelled'}
+                            </span>
+                            <span className="text-neutral-300 text-xs font-mono">
+                              Cancelled at {Math.floor(finalDurationSecs / 60)}m {finalDurationSecs % 60}s
+                            </span>
+                            <button 
+                              onClick={() => { setPage(0); setSubState(0); setDipAborted(false); }} 
+                              className="w-full mt-2 py-2.5 rounded-xl font-bold text-xs bg-red-800 text-white"
+                            >
+                              BACK
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-emerald-400 text-sm font-bold">
+                              Success!, {activeIsSlim ? 'Slim ready' : 'Std. ready'}
+                            </span>
+                            <span className="text-neutral-300 text-xs font-mono">
+                              Completed in {Math.floor(finalDurationSecs / 60)}m {finalDurationSecs % 60}s
+                            </span>
+                            <button 
+                              onClick={() => { setPage(0); setSubState(0); setDipAborted(false); }} 
+                              className="w-full mt-2 py-2.5 rounded-xl font-bold text-xs text-black" 
+                              style={{ backgroundColor: ts.activeBg }}
+                            >
+                              FINISH
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
 
