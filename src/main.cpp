@@ -150,6 +150,7 @@ void setup() {
   data.s_softRamp   = prefs.getInt("s11", 50);
   data.s_tmcMode    = prefs.getInt("s12", 1);  // Default: SpreadCycle (1)
   data.s_tmcThreshold = prefs.getInt("s13", 30);
+  data.s_autoDipTimer = prefs.getInt("s14", 0);
   data.s_brightness = prefs.getInt("bright", 50);
   data.s_theme      = prefs.getInt("theme", 1);
   data.wifiSSID     = prefs.getString("wssid", "Trooli_BB00");
@@ -375,8 +376,8 @@ void processActiveDipping() {
       if (data.s_weightDwell > 0) {
         delay(data.s_weightDwell);
       }
-      sensorMgr.update();
-      data.currentWeight = sensorMgr.getWeightGrams();
+      scaleMgr.update();
+      data.currentWeight = scaleMgr.getWeightGrams();
 
       // Check if dipping process finished
       bool isSlim = data.isActiveSlimProfile;
@@ -519,7 +520,31 @@ void loop() {
   }
 
   // 1. Process Touch Events & User Interactions
+  static unsigned long lastTouchTime = millis();
+  if (M5.Touch.getCount() > 0) {
+    lastTouchTime = millis();
+  }
+
   UiEvent event = display.updateTouch();
+
+  if (event != UI_EVENT_NONE) {
+    lastTouchTime = millis();
+  }
+
+  // Auto Dip Screen Return Timer (if enabled and idle)
+  if (data.s_autoDipTimer > 0 && 
+      data.currentPage != PAGE_WEIGHT_DIP && 
+      data.currentPage != PAGE_ACTIVE_DIP && 
+      data.currentPage != PAGE_STOP_CONFIRM && 
+      data.currentPage != PAGE_WIFI_PORTAL) {
+    if (millis() - lastTouchTime > (unsigned long)data.s_autoDipTimer * 1000) {
+      data.currentPage = PAGE_WEIGHT_DIP;
+      data.showNumpad = false;
+      data.currentSubState = SUB_MAIN;
+      data.pageChanged = true;
+      lastTouchTime = millis();
+    }
+  }
 
   // 2. Handle Event Callbacks
   switch (event) {

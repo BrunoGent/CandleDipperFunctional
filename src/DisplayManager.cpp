@@ -1,17 +1,17 @@
 #include "DisplayManager.h"
 
 // Setting metadata arrays
-static const char* settingNames[14] = {
+static const char* settingNames[15] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
   "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed",
   "Col. Limit", "Soft Limit", "Weight Dwell", "Soft Ramp",
-  "Driver Mode", "Hybrid Speed"
+  "Driver Mode", "Hybrid Speed", "Auto Dip Timer"
 };
-static const char* settingUnits[14] = {
+static const char* settingUnits[15] = {
   "g", "g", "dips", "dips",
   "s", "s", "mm/s", "mm/s",
   "g", "mm", "ms", "ms",
-  "", "mm/s"
+  "", "mm/s", "s"
 };
 static const char* themeNames[3] = { "Original", "Bee Mine", "Dark Mode" };
 
@@ -105,6 +105,7 @@ int DisplayManager::getSettingValue(int index) const {
      case 11: return data.s_softRamp;
      case 12: return data.s_tmcMode;
      case 13: return data.s_tmcThreshold;
+     case 14: return data.s_autoDipTimer;
   }
   return 0;
 }
@@ -125,6 +126,7 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 11: data.s_softRamp = abs(val); break;
      case 12: data.s_tmcMode = (val < 0) ? 0 : (val % 3); break;
      case 13: data.s_tmcThreshold = abs(val); break;
+     case 14: data.s_autoDipTimer = abs(val); break;
   }
 }
 
@@ -347,21 +349,40 @@ void DisplayManager::drawScreenDashboard() {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
   
+  // Row 0: Brightness
+  int y0 = 45;
+  canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.setTextDatum(middle_center);
-  canvas.drawString("Brightness", 160, 55);
+  canvas.drawString("Brightness", 10, y0 + 15);
   
-  canvas.fillRoundRect(40, 75, 240, 20, 10, c_outline);
-  int fillWidth = map(data.s_brightness, 1, 99, 10, 240);
-  canvas.fillRoundRect(40, 75, fillWidth, 20, 10, c_active);
-  
+  canvas.fillRoundRect(160, y0, 150, 32, 5, c_outline);
+  int fillWidth = map(data.s_brightness, 1, 99, 10, 150);
+  canvas.fillRoundRect(160, y0, fillWidth, 32, 5, c_active);
   String bStr = String(data.s_brightness) + "%";
-  canvas.setTextColor(TFT_WHITE);
-  canvas.drawString(bStr.c_str(), 160, 85);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(TFT_WHITE, c_active);
+  canvas.drawString(bStr.c_str(), 235, y0 + 16);
 
+  // Row 1: Color Theme
+  int y1 = 83;
+  canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Color Theme (Tap to Change)", 160, 125);
-  drawButton(40, 145, 240, 40, themeNames[data.s_theme], c_btn1, c_btnTxt);
+  canvas.drawString("Color Theme", 10, y1 + 15);
+  canvas.fillRoundRect(160, y1, 150, 32, 5, c_btn1);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(c_btnTxt, c_btn1);
+  canvas.drawString(themeNames[data.s_theme], 235, y1 + 16);
+
+  // Row 2: Auto Dip Timer
+  int y2 = 121;
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
+  canvas.drawString("Auto Dip Timer", 10, y2 + 15);
+  canvas.fillRoundRect(160, y2, 150, 32, 5, c_outline);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(TFT_WHITE, c_outline);
+  String timerStr = (data.s_autoDipTimer == 0) ? "Disabled" : (String(data.s_autoDipTimer) + " s");
+  canvas.drawString(timerStr.c_str(), 235, y2 + 16);
 }
 
 void DisplayManager::drawWifiPortalPage() {
@@ -769,7 +790,7 @@ UiEvent DisplayManager::updateTouch() {
             else if (data.currentPage == PAGE_SETTING_MOTION) data.activeSetting = 4 + row;
             else if (data.currentPage == PAGE_SETTING_SENSOR) data.activeSetting = 8 + row;
             
-            if (data.activeSetting <= 13) {
+            if (data.activeSetting <= 14) {
               data.numpadStr = ""; 
               data.showNumpad = true; 
               data.pageChanged = true;
@@ -778,11 +799,24 @@ UiEvent DisplayManager::updateTouch() {
         }
       }
       else if (data.currentPage == PAGE_SETTING_SCREEN) {
-        if (tx >= 40 && tx <= 280 && ty >= 140 && ty <= 190) {
-          int nextTheme = (data.s_theme + 1) % 3;
-          applyTheme(nextTheme);
-          data.pageChanged = true;
-          eventTriggered = UI_EVENT_THEME_CHANGED;
+        if (tx >= 160 && tx <= 310) {
+          if (ty >= 45 && ty <= 77) { // Brightness adjustment
+            int newB = data.s_brightness + 25;
+            if (newB > 100) newB = 25;
+            setBrightness(newB);
+            data.pageChanged = true;
+            eventTriggered = UI_EVENT_SETTING_UPDATED;
+          } else if (ty >= 83 && ty <= 115) { // Theme cycle
+            int nextTheme = (data.s_theme + 1) % 3;
+            applyTheme(nextTheme);
+            data.pageChanged = true;
+            eventTriggered = UI_EVENT_THEME_CHANGED;
+          } else if (ty >= 121 && ty <= 153) { // Auto Dip Timer Numpad
+            data.activeSetting = 14;
+            data.numpadStr = "";
+            data.showNumpad = true;
+            data.pageChanged = true;
+          }
         }
       }
       else if (data.currentPage == PAGE_WEIGHT_DIP || data.currentPage == PAGE_DIPS_DIP) {

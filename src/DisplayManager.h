@@ -82,6 +82,7 @@ struct DisplayData {
   bool isMotorEnabled = true; // Motor power enable/disable toggle
   int s_brightness = 50;  // 1 to 99%
   int s_theme = 1;        // 0: Original, 1: Bee Mine, 2: Dark Mode
+  int s_autoDipTimer = 0; // Auto dip screen return timer in seconds (0 = disabled)
 
   // Numpad Editor State
   bool showNumpad = false;
