@@ -192,6 +192,17 @@ void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   }
 }
 
+static bool isTopLimitActiveDebounced(SensorManager* sensors) {
+  if (!sensors) return false;
+  if (!sensors->readRawTopLimit()) return false;
+  // Verify over 5 consecutive samples spaced 400us apart to filter EMI noise pulses
+  for (int i = 0; i < 5; i++) {
+    delayMicroseconds(400);
+    if (!sensors->readRawTopLimit()) return false;
+  }
+  return true;
+}
+
 void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs) {
   if (speedMMps <= 0.0f) return;
 
@@ -246,17 +257,6 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
       delayMicroseconds(intervalMicros - 3);
     }
   }
-}
-
-static bool isTopLimitActiveDebounced(SensorManager* sensors) {
-  if (!sensors) return false;
-  if (!sensors->readRawTopLimit()) return false;
-  // Verify over 5 consecutive samples spaced 400us apart to filter EMI noise pulses
-  for (int i = 0; i < 5; i++) {
-    delayMicroseconds(400);
-    if (!sensors->readRawTopLimit()) return false;
-  }
-  return true;
 }
 
 bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
