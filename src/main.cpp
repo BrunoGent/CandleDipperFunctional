@@ -206,29 +206,17 @@ void loop() {
       bool dirUp = data.isUpPressed;
       float speed = (float)data.manualSpeed;
 
-      // Move UP or DOWN smoothly with 80ms bursts of microsecond stepping
-      motorMgr.stepMotorBurst(dirUp, speed, 80);
+      // Pulse stepper motor smoothly using non-blocking microsecond timing
+      motorMgr.stepMotor(dirUp, speed);
 
-      // Re-verify touch position
-      M5.update();
-      if (M5.Touch.getCount() > 0) {
-        auto touch = M5.Touch.getDetail();
-        if (touch.isPressed()) {
-          data.isUpPressed = (touch.x >= 36 && touch.x <= 156 && touch.y >= 41 && touch.y <= 91);
-          data.isDownPressed = (touch.x >= 36 && touch.x <= 156 && touch.y >= 149 && touch.y <= 199);
-        } else {
-          data.isUpPressed = false;
-          data.isDownPressed = false;
+      // Throttle display refresh during continuous motion so TFT sprite updates don't interrupt step pulses
+      static unsigned long lastDisplayRefresh = 0;
+      if (millis() - lastDisplayRefresh >= 150) {
+        lastDisplayRefresh = millis();
+        if (abs(data.currentPosition - lastPosDisplayed) >= 0.2f) {
+          lastPosDisplayed = data.currentPosition;
+          display.markPageChanged(true);
         }
-      } else {
-        data.isUpPressed = false;
-        data.isDownPressed = false;
-      }
-
-      // Throttle display refresh to avoid 40ms screen pushes during continuous motion
-      if (abs(data.currentPosition - lastPosDisplayed) >= 1.0f) {
-        lastPosDisplayed = data.currentPosition;
-        display.markPageChanged(true);
       }
     } else {
       motorMgr.stopMotor();

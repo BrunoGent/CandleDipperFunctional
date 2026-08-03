@@ -5,7 +5,7 @@ ScaleManager::ScaleManager()
 
 void ScaleManager::begin(Preferences* prefs) {
   _prefs = prefs;
-  pinMode(PIN_HX711_DT, INPUT);
+  pinMode(PIN_HX711_DT, INPUT_PULLUP);
   pinMode(PIN_HX711_SCK, OUTPUT);
   digitalWrite(PIN_HX711_SCK, LOW);
 
@@ -22,31 +22,33 @@ void ScaleManager::begin(Preferences* prefs) {
 }
 
 long ScaleManager::readRawBitbang() {
-  // Wait up to 5ms for DT line to drop LOW (data ready)
-  unsigned long timeout = millis();
+  // Wait up to 15ms for DT line to drop LOW (data ready)
+  unsigned long start = millis();
   while (digitalRead(PIN_HX711_DT) == HIGH) {
-    if (millis() - timeout > 10) {
-      return _rawReadout; // Return last known reading on timeout
+    if (millis() - start > 15) {
+      return _rawReadout; // Return last known reading if sensor not ready or disconnected
     }
   }
 
+  noInterrupts(); // Protect 24-bit bitbang from ESP32 task context switches
   unsigned long count = 0;
   for (int i = 0; i < 24; i++) {
     digitalWrite(PIN_HX711_SCK, HIGH);
-    delayMicroseconds(1);
+    delayMicroseconds(2);
     count = count << 1;
     digitalWrite(PIN_HX711_SCK, LOW);
-    delayMicroseconds(1);
+    delayMicroseconds(2);
     if (digitalRead(PIN_HX711_DT)) {
       count++;
     }
   }
 
-  // 25th pulse sets gain to 128
+  // 25th pulse sets Channel A, Gain 128 for next conversion
   digitalWrite(PIN_HX711_SCK, HIGH);
-  delayMicroseconds(1);
+  delayMicroseconds(2);
   digitalWrite(PIN_HX711_SCK, LOW);
-  delayMicroseconds(1);
+  delayMicroseconds(2);
+  interrupts();
 
   // Sign extension for 24-bit two's complement integer
   if (count & 0x800000) {

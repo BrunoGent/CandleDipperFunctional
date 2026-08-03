@@ -1,7 +1,7 @@
 #include "MotorManager.h"
 
-// Standard 8mm lead screw with 1/16 microstepping -> 80 steps per mm
-const float MotorManager::STEPS_PER_MM = 80.0f;
+// Standard 8mm lead screw T8x8 with 1/8 microstepping -> 200 steps per mm
+const float MotorManager::STEPS_PER_MM = 200.0f;
 
 MotorManager::MotorManager()
   : _sensors(nullptr), _currentMode(MODE_STEALTHCHOP), _enabled(false), _positionMM(0.0f), _lastStepMicros(0) {}
@@ -53,50 +53,50 @@ void MotorManager::stopMotor() {
 void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   if (speedMMps <= 0.0f) return;
 
-  // Select TMC2209 mode based on speed: StealthChop2 for low/med, SpreadCycle for rapid
+  // Select TMC2209 mode based on speed
   if (speedMMps > 65.0f && _currentMode != MODE_SPREADCYCLE) {
     setTMCMode(MODE_SPREADCYCLE);
   } else if (speedMMps <= 65.0f && _currentMode != MODE_STEALTHCHOP) {
     setTMCMode(MODE_STEALTHCHOP);
   }
 
-  // Safety checks
-  if (_sensors) {
-    _sensors->update();
-    // 1. Moving UP: check top limit switch and don't move past 0mm home
-    if (directionUp) {
-      if (_sensors->isTopLimitHit() || _positionMM <= 0.0f) {
-        if (_sensors->isTopLimitHit()) _positionMM = 0.0f; // Calibrate home
-        stopMotor();
-        return;
-      }
-    } else {
-      // 2. Moving DOWN: check capacitive wax sensor
-      if (_sensors->isCapSensorTriggered()) {
-        stopMotor();
-        return;
+  // Limit checks (throttled every 5ms)
+  static unsigned long lastSensorCheck = 0;
+  if (millis() - lastSensorCheck >= 5) {
+    lastSensorCheck = millis();
+    if (_sensors) {
+      if (directionUp) {
+        if (_sensors->readRawTopLimit() || _positionMM <= 0.0f) {
+          if (_sensors->readRawTopLimit()) _positionMM = 0.0f; // Calibrate home
+          stopMotor();
+          return;
+        }
+      } else {
+        if (_sensors->readRawCapSensor()) {
+          stopMotor();
+          return;
+        }
       }
     }
   }
 
-  // Set direction pin (HIGH = UP towards home, LOW = DOWN into wax)
+  // Set direction pin
   digitalWrite(PIN_MOTOR_DIR, directionUp ? HIGH : LOW);
 
   // Calculate step interval in microseconds
   float stepsPerSec = speedMMps * STEPS_PER_MM;
+  if (stepsPerSec <= 0.0f) return;
   unsigned long intervalMicros = (unsigned long)(1000000.0f / stepsPerSec);
-  if (intervalMicros < 20) intervalMicros = 20; // Cap max pulse rate
+  if (intervalMicros < 10) intervalMicros = 10;
 
   unsigned long now = micros();
   if (now - _lastStepMicros >= intervalMicros) {
     _lastStepMicros = now;
 
-    // Pulse STEP pin
     digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(2);
+    delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
 
-    // Update position track (+ down, - up towards 0)
     float stepDistMM = 1.0f / STEPS_PER_MM;
     if (directionUp) {
       _positionMM -= stepDistMM;
