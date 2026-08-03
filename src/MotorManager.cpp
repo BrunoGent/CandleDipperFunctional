@@ -21,29 +21,86 @@ void MotorManager::begin(SensorManager* sensorMgr) {
   digitalWrite(PIN_MOTOR_ENABLE, LOW);
   _enabled = true;
 
-  // Initialize TMC2209 driver to StealthChop2 mode by default
+  // Initialize TMC2209 driver registers over UART:
+  // 1. IHOLD_IRUN (0x10): Run current = 16 (~0.6A RMS), Standby = 8, Hold delay = 6
+  sendUARTCommand(0x10, 0x00061008);
+  delay(5);
+
+  // 2. CHOPCONF (0x6C): 16 Microsteps with 256 Interpolation (0x14000053)
+  sendUARTCommand(0x6C, 0x14000053);
+  delay(5);
+
+  // 3. PWMCONF (0x70): StealthChop2 PWM autoscale configuration
+  sendUARTCommand(0x70, 0xC40D001D);
+  delay(5);
+
+  // 4. Set TMC mode to StealthChop2
   setTMCMode(MODE_STEALTHCHOP);
 }
 
 void MotorManager::setTMCMode(TMCMode mode) {
   _currentMode = mode;
-  // Send TMC2209 UART single-wire packet to set GCONF register
+  // Send TMC2209 UART packet to set GCONF register (0x00)
   if (mode == MODE_STEALTHCHOP) {
-    // StealthChop enabled (en_SpreadCycle = 0)
-    sendUARTCommand(0x00, 0x00000004);
+    // StealthChop2 enabled (en_SpreadCycle = 0, mstep_reg_select = 1)
+    sendUARTCommand(0x00, 0x00000080);
   } else {
-    // SpreadCycle enabled (en_SpreadCycle = 1 for rapid travel)
-    sendUARTCommand(0x00, 0x00000000);
+    // SpreadCycle enabled (en_SpreadCycle = 1, mstep_reg_select = 1 for rapid travel)
+    sendUARTCommand(0x00, 0x00000084);
   }
 }
 
+static uint8_t calcTMC2209CRC(const uint8_t* data, uint8_t len) {
+  uint8_t crc = 0;
+  for (uint8_t i = 0; i < len; i++) {
+    uint8_t currentByte = data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if ((crc ^ currentByte) & 0x01) {
+        crc = (crc >> 1) ^ 0x8C;
+      } else {
+        crc = (crc >> 1);
+      }
+      currentByte >>= 1;
+    }
+  }
+  return crc;
+}
+
 void MotorManager::sendUARTCommand(uint8_t reg, uint32_t val) {
-  // Single-wire TMC2209 software UART setup pulse
+  uint8_t msg[8];
+  msg[0] = 0x05; // TMC2209 Sync byte
+  msg[1] = 0x00; // Slave address 0
+  msg[2] = reg | 0x80; // Write register
+  msg[3] = (val >> 24) & 0xFF;
+  msg[4] = (val >> 16) & 0xFF;
+  msg[5] = (val >> 8) & 0xFF;
+  msg[6] = val & 0xFF;
+  msg[7] = calcTMC2209CRC(msg, 7);
+
+  // Method 1: Hardware Serial2 on ESP32
+  Serial2.begin(115200, SERIAL_8N1, -1, PIN_MOTOR_UART);
+  delayMicroseconds(200);
+  Serial2.write(msg, 8);
+  Serial2.flush();
+  Serial2.end();
+
+  // Method 2: Software Bit-Bang UART as backup for single-wire PIN 18
+  pinMode(PIN_MOTOR_UART, OUTPUT);
   digitalWrite(PIN_MOTOR_UART, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(PIN_MOTOR_UART, LOW);
-  delayMicroseconds(10);
-  digitalWrite(PIN_MOTOR_UART, HIGH);
+  delayMicroseconds(100);
+
+  for (int b = 0; b < 8; b++) {
+    uint8_t byteVal = msg[b];
+    digitalWrite(PIN_MOTOR_UART, LOW); // Start bit
+    delayMicroseconds(8);
+    for (int i = 0; i < 8; i++) {
+      digitalWrite(PIN_MOTOR_UART, (byteVal & (1 << i)) ? HIGH : LOW);
+      delayMicroseconds(8);
+    }
+    digitalWrite(PIN_MOTOR_UART, HIGH); // Stop bit
+    delayMicroseconds(9);
+  }
+  delayMicroseconds(100);
 }
 
 void MotorManager::stopMotor() {

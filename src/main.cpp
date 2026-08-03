@@ -34,13 +34,6 @@ bool checkManualStop() {
   data.currentPosition = motorMgr.getCurrentPositionMM();
   data.currentWeight = scaleMgr.getWeightGrams();
 
-  static unsigned long lastPosRefresh = 0;
-  if (millis() - lastPosRefresh >= 100) {
-    lastPosRefresh = millis();
-    display.markPageChanged(true);
-    display.renderCurrentPage();
-  }
-
   if (M5.Touch.getCount() > 0) {
     auto t = M5.Touch.getDetail();
     if (t.wasPressed() || t.isPressed()) {
@@ -48,6 +41,7 @@ bool checkManualStop() {
       data.isHomingActive = false;
       data.isDipBotActive = false;
       motorMgr.stopMotor();
+      display.markPageChanged(true);
       return true; // Screen touched -> Stop motion immediately
     }
   }
@@ -267,7 +261,7 @@ void processActiveDipping() {
   switch (currentDipPhase) {
     case DIP_PHASE_LOWERING:
       // Move DOWN at s_downSpeed
-      motorMgr.stepMotorBurst(false, (float)data.s_downSpeed, 15);
+      motorMgr.stepMotorBurst(false, (float)data.s_downSpeed, 40);
       data.currentPosition = motorMgr.getCurrentPositionMM();
 
       // Check if wax level capacitive sensor triggers
@@ -306,7 +300,7 @@ void processActiveDipping() {
 
     case DIP_PHASE_RAISING:
       // Move UP at s_upSpeed
-      motorMgr.stepMotorBurst(true, (float)data.s_upSpeed, 15);
+      motorMgr.stepMotorBurst(true, (float)data.s_upSpeed, 40);
       data.currentPosition = motorMgr.getCurrentPositionMM();
 
       // Check if top limit switch hit or reached home position 0.0mm
@@ -398,14 +392,32 @@ void loop() {
 
   // Live screen refresh on Manual Page when scale weight or position changes
   if (data.currentPage == PAGE_MANUAL) {
-    motorMgr.stopMotor();
-    static unsigned long lastScaleRefresh = 0;
-    if (millis() - lastScaleRefresh >= 250) {
-      lastScaleRefresh = millis();
-      if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || abs(data.currentPosition - lastPosDisplayed) >= 0.2f) {
-        lastWtDisplayed = data.currentWeight;
-        lastPosDisplayed = data.currentPosition;
+    if (data.isUpPressed) {
+      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 30);
+      data.currentPosition = motorMgr.getCurrentPositionMM();
+      static unsigned long lastPosUpdate = 0;
+      if (millis() - lastPosUpdate > 200) {
+        lastPosUpdate = millis();
         display.markPageChanged(true);
+      }
+    } else if (data.isDownPressed) {
+      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 30);
+      data.currentPosition = motorMgr.getCurrentPositionMM();
+      static unsigned long lastPosUpdate = 0;
+      if (millis() - lastPosUpdate > 200) {
+        lastPosUpdate = millis();
+        display.markPageChanged(true);
+      }
+    } else if (!data.isHomingActive && !data.isDipBotActive) {
+      motorMgr.stopMotor();
+      static unsigned long lastScaleRefresh = 0;
+      if (millis() - lastScaleRefresh >= 250) {
+        lastScaleRefresh = millis();
+        if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || abs(data.currentPosition - lastPosDisplayed) >= 0.2f) {
+          lastWtDisplayed = data.currentWeight;
+          lastPosDisplayed = data.currentPosition;
+          display.markPageChanged(true);
+        }
       }
     }
   }
