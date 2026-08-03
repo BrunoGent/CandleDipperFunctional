@@ -51,6 +51,25 @@ void MotorManager::setTMCMode(TMCMode mode) {
   }
 }
 
+void MotorManager::applyConfigMode(int modeSetting, float speedMMps, int thresholdMMps) {
+  if (modeSetting == 0) {
+    setTMCMode(MODE_STEALTHCHOP);
+  } else if (modeSetting == 1) {
+    setTMCMode(MODE_SPREADCYCLE);
+  } else if (modeSetting == 2) {
+    if (speedMMps >= (float)thresholdMMps) {
+      setTMCMode(MODE_SPREADCYCLE);
+    } else {
+      setTMCMode(MODE_STEALTHCHOP);
+    }
+  }
+}
+
+void MotorManager::setMotorEnable(bool enable) {
+  _enabled = enable;
+  digitalWrite(PIN_MOTOR_ENABLE, enable ? LOW : HIGH);
+}
+
 static uint8_t calcTMC2209CRC(const uint8_t* data, uint8_t len) {
   uint8_t crc = 0;
   for (uint8_t i = 0; i < len; i++) {

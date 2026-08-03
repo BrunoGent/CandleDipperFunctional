@@ -11,6 +11,7 @@ enum AppState {
   PAGE_SETTINGS_HUB,  
   PAGE_SETTING_DIPPING,
   PAGE_SETTING_MOTION,
+  PAGE_SETTING_MOTOR,
   PAGE_SETTING_SENSOR,
   PAGE_SETTING_SCREEN,
   PAGE_WIFI_PORTAL,
@@ -39,7 +40,8 @@ enum UiEvent {
   UI_EVENT_MANUAL_TARE,
   UI_EVENT_MANUAL_HOME,
   UI_EVENT_MANUAL_DIP_BOT,
-  UI_EVENT_MANUAL_STOP
+  UI_EVENT_MANUAL_STOP,
+  UI_EVENT_MOTOR_ENABLE_TOGGLE
 };
 
 // --- Display Data Container ---
@@ -71,6 +73,9 @@ struct DisplayData {
   int s_downSpeed = 50;
   int s_upSpeed = 60;
   int s_colLimit = -50;
+  int s_tmcMode = 1;      // 0: StealthChop, 1: SpreadCycle, 2: Adaptive
+  int s_tmcThreshold = 30;// Adaptive Threshold (mm/s)
+  bool isMotorEnabled = true; // Motor power enable/disable toggle
   int s_brightness = 50; // 1 to 99%
   int s_theme = 1;       // 0: Original, 1: Bee Mine, 2: Dark Mode
 
@@ -162,6 +167,7 @@ private:
   void drawManualPage();
   void drawSettingsHub();
   void drawSettingsList(int startIndex, int count);
+  void drawMotorPage();
   void drawScreenDashboard();
   void drawWifiPortalPage();
   void drawNumpad();

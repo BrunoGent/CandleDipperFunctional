@@ -24,7 +24,12 @@ public:
 
   // Mode Configuration
   void setTMCMode(TMCMode mode);
+  void applyConfigMode(int modeSetting, float speedMMps, int thresholdMMps);
   TMCMode getTMCMode() const { return _currentMode; }
+
+  // Power Enable / Disable
+  void setMotorEnable(bool enable);
+  bool isMotorEnabled() const { return _enabled; }
 
   // Homing & Dipping Routines
   bool performHoming(float speedMMps, bool (*stopCheck)() = nullptr);

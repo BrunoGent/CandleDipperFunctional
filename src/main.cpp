@@ -145,6 +145,8 @@ void setup() {
   data.s_upSpeed    = prefs.getInt("s6", 60);
   data.s_downSpeed  = prefs.getInt("s7", 50);
   data.s_colLimit   = prefs.getInt("s8", -50); 
+  data.s_tmcMode    = prefs.getInt("s9", 1);  // Default: SpreadCycle (1)
+  data.s_tmcThreshold = prefs.getInt("s10", 30);
   data.s_brightness = prefs.getInt("bright", 50);
   data.s_theme      = prefs.getInt("theme", 1);
   data.wifiSSID     = prefs.getString("wssid", "Trooli_BB00");
@@ -260,10 +262,11 @@ void processActiveDipping() {
 
   switch (currentDipPhase) {
     case DIP_PHASE_LOWERING: {
-      motorMgr.setTMCMode(MODE_STEALTHCHOP);
-      digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN direction
       float speed = (float)data.s_downSpeed;
       if (speed <= 0.0f) speed = 20.0f;
+      motorMgr.applyConfigMode(data.s_tmcMode, speed, data.s_tmcThreshold);
+
+      digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN direction
       float stepsPerSec = speed * MotorManager::STEPS_PER_MM;
       unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
       if (delayUs < 20) delayUs = 20;
@@ -271,7 +274,7 @@ void processActiveDipping() {
       unsigned long startTimeout = millis();
       float stepDistMM = 1.0f / MotorManager::STEPS_PER_MM;
 
-      while (sensorMgr.update(), !sensorMgr.isCapSensorTriggered()) {
+      while (!sensorMgr.readRawCapSensor()) {
         if (checkManualStop()) {
           motorMgr.stopMotor();
           return;
@@ -322,10 +325,11 @@ void processActiveDipping() {
       break;
 
     case DIP_PHASE_RAISING: {
-      motorMgr.setTMCMode(MODE_STEALTHCHOP);
-      digitalWrite(PIN_MOTOR_DIR, HIGH); // UP direction
       float speed = (float)data.s_upSpeed;
       if (speed <= 0.0f) speed = 30.0f;
+      motorMgr.applyConfigMode(data.s_tmcMode, speed, data.s_tmcThreshold);
+
+      digitalWrite(PIN_MOTOR_DIR, HIGH); // UP direction
       float stepsPerSec = speed * MotorManager::STEPS_PER_MM;
       unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
       if (delayUs < 20) delayUs = 20;
@@ -333,7 +337,7 @@ void processActiveDipping() {
       unsigned long startTimeout = millis();
       float stepDistMM = 1.0f / MotorManager::STEPS_PER_MM;
 
-      while (sensorMgr.update(), (!sensorMgr.isTopLimitHit() && data.currentPosition > 0.0f)) {
+      while (!sensorMgr.readRawTopLimit() && data.currentPosition > 0.0f) {
         if (checkManualStop()) {
           motorMgr.stopMotor();
           return;
@@ -352,7 +356,7 @@ void processActiveDipping() {
         if (millis() - startTimeout > 35000) break; // Timeout guard
       }
 
-      if (sensorMgr.isTopLimitHit()) {
+      if (sensorMgr.readRawTopLimit()) {
         data.currentPosition = 0.0f;
         motorMgr.setCurrentPositionMM(0.0f);
       }
@@ -537,11 +541,16 @@ void loop() {
 
     case UI_EVENT_SETTING_UPDATED:
       // Persist modified setting to Preferences
-      if (data.activeSetting >= 0 && data.activeSetting <= 8) {
+      if (data.activeSetting >= 0 && data.activeSetting <= 10) {
         char keyStr[8];
         snprintf(keyStr, sizeof(keyStr), "s%d", data.activeSetting);
         prefs.putInt(keyStr, display.getSettingValue(data.activeSetting));
       }
+      motorMgr.applyConfigMode(data.s_tmcMode, 0, data.s_tmcThreshold);
+      break;
+
+    case UI_EVENT_MOTOR_ENABLE_TOGGLE:
+      motorMgr.setMotorEnable(data.isMotorEnabled);
       break;
 
     case UI_EVENT_THEME_CHANGED:

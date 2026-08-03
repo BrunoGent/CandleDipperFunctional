@@ -1,11 +1,12 @@
 #include "DisplayManager.h"
 
 // Setting metadata arrays
-static const char* settingNames[9] = {
+static const char* settingNames[11] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
-  "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit"
+  "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit",
+  "Driver Mode", "Hybrid Speed"
 };
-static const char* settingUnits[9] = { "g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g" };
+static const char* settingUnits[11] = { "g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g", "", "mm/s" };
 static const char* themeNames[3] = { "Original", "Bee Mine", "Dark Mode" };
 
 DisplayManager::DisplayManager() : _display(&M5.Display), canvas(&M5.Display) {
@@ -87,6 +88,8 @@ int DisplayManager::getSettingValue(int index) const {
      case 6: return data.s_upSpeed; 
      case 7: return data.s_downSpeed;
      case 8: return data.s_colLimit;
+     case 9: return data.s_tmcMode;
+     case 10: return data.s_tmcThreshold;
   }
   return 0;
 }
@@ -102,6 +105,8 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 6: data.s_upSpeed = val; break;
      case 7: data.s_downSpeed = val; break;
      case 8: data.s_colLimit = -abs(val); break;
+     case 9: data.s_tmcMode = (val < 0) ? 0 : (val % 3); break;
+     case 10: data.s_tmcThreshold = val; break;
   }
 }
 
@@ -195,6 +200,30 @@ void DisplayManager::drawManualPage() {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
   
+  // Left Panel - Realtime Position & Weight Readouts
+  canvas.fillRoundRect(10, 41, 175, 75, 8, c_outline);
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(TFT_WHITE, c_outline);
+  char posStr[32]; snprintf(posStr, sizeof(posStr), "POS: %.1f mm", data.currentPosition);
+  canvas.drawString(posStr, 18, 58);
+
+  char wtStr[32]; snprintf(wtStr, sizeof(wtStr), "WT:  %.1f g", data.currentWeight);
+  canvas.setTextColor(TFT_YELLOW, c_outline);
+  canvas.drawString(wtStr, 18, 93);
+
+  // Hardware Sensor Status Indicators
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(data.limitSwitchOn ? TFT_RED : TFT_GREEN, c_bg);
+  canvas.drawString(data.limitSwitchOn ? "Limit: HIT" : "Limit: OPEN", 15, 128);
+
+  canvas.setTextColor(data.capSensorOn ? TFT_YELLOW : TFT_LIGHTGREY, c_bg);
+  canvas.drawString(data.capSensorOn ? "Wax: DETECTED" : "Wax: CLEAR", 98, 128);
+
+  // Motor Enable Toggle Button
+  uint16_t mColor = data.isMotorEnabled ? canvas.color565(40, 140, 40) : canvas.color565(160, 40, 40);
+  drawButton(10, 146, 175, 45, data.isMotorEnabled ? "MOTOR: ON" : "MOTOR: OFF", mColor, TFT_WHITE);
+
+  // Right Side Action Buttons
   if (data.isHomingActive) {
     drawButton(197, 41, 118, 46, "STOP", canvas.color565(255, 0, 0), TFT_WHITE);
   } else {
@@ -202,35 +231,65 @@ void DisplayManager::drawManualPage() {
   }
 
   if (data.isDipBotActive) {
-    drawButton(197, 97, 118, 46, "STOP", canvas.color565(255, 0, 0), TFT_WHITE);
+    drawButton(197, 93, 118, 46, "STOP", canvas.color565(255, 0, 0), TFT_WHITE);
   } else {
-    drawButton(197, 97, 118, 46, "DIP BOT", data.capSensorOn ? c_active : c_outline, data.capSensorOn ? TFT_BLACK : TFT_WHITE);
+    drawButton(197, 93, 118, 46, "DIP BOT", data.capSensorOn ? c_active : c_outline, data.capSensorOn ? TFT_BLACK : TFT_WHITE);
   }
 
-  drawButton(197, 153, 118, 46, "TARE", TFT_ORANGE, TFT_BLACK);
-  
-  canvas.fillRoundRect(36, 41, 120, 50, 10, data.isUpPressed ? c_active : c_btn1);
-  canvas.fillTriangle(96, 51, 66, 81, 126, 81, data.isUpPressed ? TFT_BLACK : c_btnTxt);
-  canvas.fillRoundRect(36, 149, 120, 50, 10, data.isDownPressed ? c_active : c_btn1);
-  canvas.fillTriangle(66, 159, 126, 159, 96, 189, data.isDownPressed ? TFT_BLACK : c_btnTxt);
-  
-  drawButton(10, 100, 45, 40, "-", c_outline, TFT_WHITE);
-  drawButton(137, 100, 45, 40, "+", c_outline, TFT_WHITE);
-  
-  canvas.setTextColor(c_btnTxt, c_bg);
-  canvas.setTextDatum(middle_center);
-  char speedStr[16]; snprintf(speedStr, sizeof(speedStr), "%d", data.manualSpeed);
-  canvas.drawString(speedStr, 96, 120);
+  drawButton(197, 145, 118, 46, "TARE", TFT_ORANGE, TFT_BLACK);
 }
 
 void DisplayManager::drawSettingsHub() {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
   
-  drawButton(10, 45, 145, 65, "Dipping", c_btn1, c_btnTxt);
-  drawButton(165, 45, 145, 65, "Motion", c_btn1, c_btnTxt);
-  drawButton(10, 125, 145, 65, "Sensor", c_btn1, c_btnTxt);
-  drawButton(165, 125, 145, 65, "Screen", c_btn2, c_btnTxt);
+  // 2 (high) x 3 (wide) Menu Options
+  drawButton(10, 45, 93, 60, "Dipping", c_btn1, c_btnTxt);
+  drawButton(113, 45, 93, 60, "Motion", c_btn1, c_btnTxt);
+  drawButton(216, 45, 93, 60, "Motor", c_btn1, c_btnTxt);
+
+  drawButton(10, 118, 93, 60, "Sensor", c_btn1, c_btnTxt);
+  drawButton(113, 118, 93, 60, "Screen", c_btn2, c_btnTxt);
+  drawButton(216, 118, 93, 60, "Wi-Fi", c_btn2, c_btnTxt);
+}
+
+void DisplayManager::drawMotorPage() {
+  canvas.fillScreen(c_bg);
+  drawTopBanner(); drawBottomBanner();
+
+  static const char* modeLabels[3] = { "StealthChop", "SpreadCycle", "Adaptive" };
+
+  // Row 0: Driver Mode
+  int y0 = 45;
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
+  canvas.drawString("Driver Mode", 10, y0 + 15);
+  canvas.fillRoundRect(160, y0, 150, 32, 5, c_outline);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(TFT_WHITE, c_outline);
+  canvas.drawString(modeLabels[data.s_tmcMode % 3], 235, y0 + 16);
+
+  // Row 1: Speed Threshold (for Adaptive)
+  int y1 = 83;
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
+  canvas.drawString("Hybrid Speed", 10, y1 + 15);
+  canvas.fillRoundRect(160, y1, 150, 32, 5, data.s_tmcMode == 2 ? c_outline : canvas.color565(60, 60, 60));
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(data.s_tmcMode == 2 ? TFT_WHITE : TFT_DARKGREY);
+  String threshStr = String(data.s_tmcThreshold) + " mm/s";
+  canvas.drawString(threshStr.c_str(), 235, y1 + 16);
+
+  // Row 2: Motor Power Enable/Disable
+  int y2 = 121;
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
+  canvas.drawString("Motor Power", 10, y2 + 15);
+  uint16_t btnColor = data.isMotorEnabled ? canvas.color565(40, 140, 40) : canvas.color565(160, 40, 40);
+  canvas.fillRoundRect(160, y2, 150, 32, 5, btnColor);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(TFT_WHITE, btnColor);
+  canvas.drawString(data.isMotorEnabled ? "ENABLED" : "DISABLED", 235, y2 + 16);
 }
 
 void DisplayManager::drawSettingsList(int startIndex, int count) {
@@ -457,6 +516,9 @@ void DisplayManager::renderCurrentPage() {
     case PAGE_SETTING_MOTION: 
       if (data.showNumpad) drawNumpad(); else drawSettingsList(4, 4); 
       break;
+    case PAGE_SETTING_MOTOR:
+      if (data.showNumpad) drawNumpad(); else drawMotorPage();
+      break;
     case PAGE_SETTING_SENSOR: 
       if (data.showNumpad) drawNumpad(); else drawSettingsList(8, 1); 
       break;
@@ -614,14 +676,37 @@ UiEvent DisplayManager::updateTouch() {
         }
       }
       else if (data.currentPage == PAGE_SETTINGS_HUB) {
-        if (ty >= 45 && ty <= 110) {
-          if (tx < 160) data.currentPage = PAGE_SETTING_DIPPING;
-          else data.currentPage = PAGE_SETTING_MOTION;
+        if (ty >= 45 && ty <= 112) {
+          if (tx < 105) data.currentPage = PAGE_SETTING_DIPPING;
+          else if (tx < 210) data.currentPage = PAGE_SETTING_MOTION;
+          else data.currentPage = PAGE_SETTING_MOTOR;
           data.pageChanged = true;
-        } else if (ty >= 125 && ty <= 190) {
-          if (tx < 160) data.currentPage = PAGE_SETTING_SENSOR;
-          else data.currentPage = PAGE_SETTING_SCREEN;
+        } else if (ty >= 118 && ty <= 185) {
+          if (tx < 105) data.currentPage = PAGE_SETTING_SENSOR;
+          else if (tx < 210) data.currentPage = PAGE_SETTING_SCREEN;
+          else {
+            data.currentPage = PAGE_WIFI_PORTAL;
+            eventTriggered = UI_EVENT_START_WIFI_PORTAL;
+          }
           data.pageChanged = true;
+        }
+      }
+      else if (data.currentPage == PAGE_SETTING_MOTOR) {
+        if (tx >= 160 && tx <= 310) {
+          if (ty >= 45 && ty <= 77) { // Driver Mode Toggle
+            data.s_tmcMode = (data.s_tmcMode + 1) % 3;
+            data.pageChanged = true;
+            eventTriggered = UI_EVENT_SETTING_UPDATED;
+          } else if (ty >= 83 && ty <= 115) { // Hybrid Speed Threshold
+            data.activeSetting = 10;
+            data.numpadStr = "";
+            data.showNumpad = true;
+            data.pageChanged = true;
+          } else if (ty >= 121 && ty <= 153) { // Motor Power Toggle
+            data.isMotorEnabled = !data.isMotorEnabled;
+            data.pageChanged = true;
+            eventTriggered = UI_EVENT_MOTOR_ENABLE_TOGGLE;
+          }
         }
       }
       else if (data.currentPage == PAGE_SETTING_SENSOR) {
@@ -641,7 +726,7 @@ UiEvent DisplayManager::updateTouch() {
             if (data.currentPage == PAGE_SETTING_DIPPING) data.activeSetting = 0 + row;
             else if (data.currentPage == PAGE_SETTING_MOTION) data.activeSetting = 4 + row;
             
-            if (data.activeSetting <= 8) {
+            if (data.activeSetting <= 10) {
               data.numpadStr = ""; 
               data.showNumpad = true; 
               data.pageChanged = true;
@@ -684,24 +769,19 @@ UiEvent DisplayManager::updateTouch() {
           data.pageChanged = true; 
           eventTriggered = data.isHomingActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_MANUAL_HOME;
         }
-        else if (tx >= 197 && tx <= 315 && ty >= 97 && ty <= 143) { 
+        else if (tx >= 197 && tx <= 315 && ty >= 93 && ty <= 139) { 
           data.pageChanged = true; 
           eventTriggered = data.isDipBotActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_MANUAL_DIP_BOT;
         }
-        else if (tx >= 197 && tx <= 315 && ty >= 153 && ty <= 199) { 
+        else if (tx >= 197 && tx <= 315 && ty >= 145 && ty <= 191) { 
           data.currentWeight = 0.0; 
           data.pageChanged = true; 
           eventTriggered = UI_EVENT_MANUAL_TARE;
         }
-        else if (tx >= 10 && tx <= 55 && ty >= 100 && ty <= 140) { 
-          data.manualSpeed -= 5; 
-          if (data.manualSpeed < 5) data.manualSpeed = 5; 
-          data.pageChanged = true; 
-        }
-        else if (tx >= 137 && tx <= 182 && ty >= 100 && ty <= 140) { 
-          data.manualSpeed += 5; 
-          if (data.manualSpeed > 100) data.manualSpeed = 100;
-          data.pageChanged = true; 
+        else if (tx >= 10 && tx <= 185 && ty >= 146 && ty <= 191) {
+          data.isMotorEnabled = !data.isMotorEnabled;
+          data.pageChanged = true;
+          eventTriggered = UI_EVENT_MOTOR_ENABLE_TOGGLE;
         }
       }
     }
