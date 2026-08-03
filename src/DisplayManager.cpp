@@ -196,13 +196,13 @@ void DisplayManager::drawManualPage() {
   drawTopBanner(); drawBottomBanner();
   
   if (data.isHomingActive) {
-    drawButton(197, 41, 118, 46, "STOP", TFT_RED, TFT_WHITE);
+    drawButton(197, 41, 118, 46, "STOP", canvas.color565(255, 0, 0), TFT_WHITE);
   } else {
     drawButton(197, 41, 118, 46, "HOME", data.limitSwitchOn ? c_active : c_outline, data.limitSwitchOn ? TFT_BLACK : TFT_WHITE);
   }
 
   if (data.isDipBotActive) {
-    drawButton(197, 97, 118, 46, "STOP", TFT_RED, TFT_WHITE);
+    drawButton(197, 97, 118, 46, "STOP", canvas.color565(255, 0, 0), TFT_WHITE);
   } else {
     drawButton(197, 97, 118, 46, "DIP BOT", data.capSensorOn ? c_active : c_outline, data.capSensorOn ? TFT_BLACK : TFT_WHITE);
   }
@@ -594,6 +594,11 @@ UiEvent DisplayManager::updateTouch() {
         }
       }
       else if (data.currentPage == PAGE_MANUAL) {
+        if (data.justStoppedByTouch) {
+          data.justStoppedByTouch = false;
+          data.pageChanged = true;
+          return UI_EVENT_NONE;
+        }
         if (tx >= 197 && tx <= 315 && ty >= 41 && ty <= 87) { 
           data.pageChanged = true; 
           eventTriggered = data.isHomingActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_MANUAL_HOME;

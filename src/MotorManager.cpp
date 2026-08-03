@@ -121,24 +121,27 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
   float stepsPerSec = speedMMps * STEPS_PER_MM;
   if (stepsPerSec <= 0.0f) return;
   unsigned long intervalMicros = (unsigned long)(1000000.0f / stepsPerSec);
-  if (intervalMicros < 20) intervalMicros = 20;
+  if (intervalMicros < 10) intervalMicros = 10;
 
   float stepDistMM = 1.0f / STEPS_PER_MM;
   unsigned long startMs = millis();
+  unsigned long lastSensorCheck = 0;
 
   while (millis() - startMs < burstMs) {
-    if (_sensors) {
-      _sensors->update();
-      if (directionUp) {
-        if (_sensors->isTopLimitHit() || _positionMM <= 0.0f) {
-          if (_sensors->isTopLimitHit()) _positionMM = 0.0f;
-          stopMotor();
-          break;
-        }
-      } else {
-        if (_sensors->isCapSensorTriggered()) {
-          stopMotor();
-          break;
+    if (millis() - lastSensorCheck >= 5) {
+      lastSensorCheck = millis();
+      if (_sensors) {
+        if (directionUp) {
+          if (_sensors->readRawTopLimit() || _positionMM <= 0.0f) {
+            if (_sensors->readRawTopLimit()) _positionMM = 0.0f;
+            stopMotor();
+            break;
+          }
+        } else {
+          if (_sensors->readRawCapSensor()) {
+            stopMotor();
+            break;
+          }
         }
       }
     }

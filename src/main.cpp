@@ -33,6 +33,11 @@ bool checkManualStop() {
   if (M5.Touch.getCount() > 0) {
     auto t = M5.Touch.getDetail();
     if (t.wasPressed() || t.isPressed()) {
+      DisplayData& data = display.getData();
+      data.justStoppedByTouch = true;
+      data.isHomingActive = false;
+      data.isDipBotActive = false;
+      motorMgr.stopMotor();
       return true; // Screen touched -> Stop motion immediately
     }
   }
@@ -197,21 +202,36 @@ void loop() {
 
   // Handle continuous movement on Manual Page
   if (data.currentPage == PAGE_MANUAL) {
-    if (data.isUpPressed) {
-      // Move UP at manualSpeed mm/s smoothly
-      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 15);
-    } else if (data.isDownPressed) {
-      // Move DOWN at manualSpeed mm/s smoothly
-      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 15);
+    if (data.isUpPressed || data.isDownPressed) {
+      bool dirUp = data.isUpPressed;
+      float speed = (float)data.manualSpeed;
+
+      // Move UP or DOWN smoothly with 80ms bursts of microsecond stepping
+      motorMgr.stepMotorBurst(dirUp, speed, 80);
+
+      // Re-verify touch position
+      M5.update();
+      if (M5.Touch.getCount() > 0) {
+        auto touch = M5.Touch.getDetail();
+        if (touch.isPressed()) {
+          data.isUpPressed = (touch.x >= 36 && touch.x <= 156 && touch.y >= 41 && touch.y <= 91);
+          data.isDownPressed = (touch.x >= 36 && touch.x <= 156 && touch.y >= 149 && touch.y <= 199);
+        } else {
+          data.isUpPressed = false;
+          data.isDownPressed = false;
+        }
+      } else {
+        data.isUpPressed = false;
+        data.isDownPressed = false;
+      }
+
+      // Throttle display refresh to avoid 40ms screen pushes during continuous motion
+      if (abs(data.currentPosition - lastPosDisplayed) >= 1.0f) {
+        lastPosDisplayed = data.currentPosition;
+        display.markPageChanged(true);
+      }
     } else {
       motorMgr.stopMotor();
-    }
-
-    // Refresh display if position or weight changed noticeably
-    if (abs(data.currentPosition - lastPosDisplayed) >= 0.5f || abs(data.currentWeight - lastWtDisplayed) >= 0.5f) {
-      lastPosDisplayed = data.currentPosition;
-      lastWtDisplayed = data.currentWeight;
-      display.markPageChanged(true);
     }
   }
 

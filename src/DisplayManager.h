@@ -56,6 +56,7 @@ struct DisplayData {
   bool isDownPressed = false;   
   bool isHomingActive = false;
   bool isDipBotActive = false;
+  bool justStoppedByTouch = false;
   int manualSpeed = 50;
   float currentPosition = 0.0;
   float currentWeight = 0.0;

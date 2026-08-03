@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Code2, 
   Layers, 
@@ -475,6 +475,53 @@ export default function App() {
   const [activeSettingIdx, setActiveSettingIdx] = useState<number>(0);
   const [lastEvent, setLastEvent] = useState<string>('UI Initialized (Hardware Managers Loaded)');
 
+  const homingTimerRef = useRef<any[]>([]);
+  const dipBotTimerRef = useRef<any[]>([]);
+  const holdIntervalRef = useRef<any>(null);
+
+  const stopHoming = () => {
+    homingTimerRef.current.forEach(clearTimeout);
+    homingTimerRef.current = [];
+    setIsHoming(false);
+    setLastEvent('Homing motion STOPPED by user');
+  };
+
+  const stopDipBot = () => {
+    dipBotTimerRef.current.forEach(clearTimeout);
+    dipBotTimerRef.current = [];
+    setIsDipBot(false);
+    setLastEvent('Dip Bot motion STOPPED by user');
+  };
+
+  const startManualMove = (isUp: boolean) => {
+    if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
+    const stepMove = () => {
+      setPosMM((prevPos) => {
+        if (isUp) {
+          if (prevPos <= 0) {
+            setLimitSwitch(true);
+            return 0;
+          }
+          const next = Math.max(0, prevPos - (speed * 0.05));
+          if (next === 0) setLimitSwitch(true);
+          return next;
+        } else {
+          setLimitSwitch(false);
+          return prevPos + (speed * 0.05);
+        }
+      });
+    };
+    stepMove();
+    holdIntervalRef.current = setInterval(stepMove, 50);
+  };
+
+  const stopManualMove = () => {
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+  };
+
   const settingNames = ["Slim Weight", "Std Weight", "Slim Dips", "Std Dips", "1st Dip Time", "Sub. Dip Time", "Down Speed", "Up Speed", "Col. Limit"];
   const settingUnits = ["g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g"];
   const [settingValues, setSettingValues] = useState<number[]>([1500, 2500, 15, 25, 10, 4, 50, 60, -50]);
@@ -738,17 +785,12 @@ export default function App() {
                       <div className="w-full h-full grid grid-cols-12 gap-2 p-1">
                         <div className="col-span-7 flex flex-col justify-between">
                           <button
-                            onClick={() => {
-                              if (limitSwitch || posMM <= 0) {
-                                setLastEvent('UP stopped: Limit switch engaged / Home reached');
-                              } else {
-                                const newPos = Math.max(0, posMM - (speed * 0.2));
-                                setPosMM(newPos);
-                                if (newPos === 0) setLimitSwitch(true);
-                                setLastEvent(`Stepped UP to ${newPos.toFixed(1)}mm`);
-                              }
-                            }}
-                            className={`h-11 rounded-xl flex items-center justify-center font-bold text-xs ${limitSwitch ? 'ring-2 ring-emerald-400' : ''}`}
+                            onMouseDown={() => startManualMove(true)}
+                            onMouseUp={stopManualMove}
+                            onMouseLeave={stopManualMove}
+                            onTouchStart={() => startManualMove(true)}
+                            onTouchEnd={stopManualMove}
+                            className={`h-11 rounded-xl flex items-center justify-center font-bold text-xs select-none ${limitSwitch ? 'ring-2 ring-emerald-400' : ''}`}
                             style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
                           >
                             ▲ UP
@@ -759,17 +801,12 @@ export default function App() {
                             <button onClick={() => setSpeed(Math.min(100, speed + 5))} className="w-8 h-8 rounded bg-neutral-700 text-white font-bold flex items-center justify-center">+</button>
                           </div>
                           <button
-                            onClick={() => {
-                              if (capSensor) {
-                                setLastEvent('DOWN stopped: Capacitive wax sensor triggered');
-                              } else {
-                                const newPos = posMM + (speed * 0.2);
-                                setPosMM(newPos);
-                                setLimitSwitch(false);
-                                setLastEvent(`Stepped DOWN to ${newPos.toFixed(1)}mm`);
-                              }
-                            }}
-                            className="h-11 rounded-xl flex items-center justify-center font-bold text-xs"
+                            onMouseDown={() => startManualMove(false)}
+                            onMouseUp={stopManualMove}
+                            onMouseLeave={stopManualMove}
+                            onTouchStart={() => startManualMove(false)}
+                            onTouchEnd={stopManualMove}
+                            className="h-11 rounded-xl flex items-center justify-center font-bold text-xs select-none"
                             style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
                           >
                             ▼ DOWN
@@ -779,20 +816,21 @@ export default function App() {
                           <button
                             onClick={() => {
                               if (isHoming) {
-                                setIsHoming(false);
-                                setLastEvent('Homing motion STOPPED by user');
+                                stopHoming();
                               } else {
                                 setIsHoming(true);
                                 setLastEvent('Homing Stage 1: Rapid search towards top limit switch...');
-                                setTimeout(() => {
+                                const t1 = setTimeout(() => {
                                   setLastEvent('Homing Stage 2: Backing down 2mm & slow precision re-approach...');
-                                  setTimeout(() => {
+                                  const t2 = setTimeout(() => {
                                     setPosMM(0.0);
                                     setLimitSwitch(true);
                                     setIsHoming(false);
                                     setLastEvent('Homing complete: Position zeroed to 0.0mm');
                                   }, 800);
+                                  homingTimerRef.current.push(t2);
                                 }, 800);
+                                homingTimerRef.current = [t1];
                               }
                             }}
                             className="flex-1 rounded-lg text-xs font-bold flex items-center justify-center transition-all"
@@ -806,26 +844,28 @@ export default function App() {
                           <button
                             onClick={() => {
                               if (isDipBot) {
-                                setIsDipBot(false);
-                                setLastEvent('Dip Bot motion STOPPED by user');
+                                stopDipBot();
                               } else {
                                 setIsDipBot(true);
                                 setLastEvent('Dip Bot Stage 1: Lowering to capacitive wax sensor...');
-                                setTimeout(() => {
+                                const t1 = setTimeout(() => {
                                   setPosMM(120.0);
                                   setCapSensor(true);
                                   setLastEvent('Dip Bot Stage 2: In wax, holding...');
-                                  setTimeout(() => {
+                                  const t2 = setTimeout(() => {
                                     setCapSensor(false);
                                     setLastEvent('Dip Bot Stage 3: Returning to 0.0mm home...');
-                                    setTimeout(() => {
+                                    const t3 = setTimeout(() => {
                                       setPosMM(0.0);
                                       setLimitSwitch(true);
                                       setIsDipBot(false);
                                       setLastEvent('Dip Bot complete: Carriage home');
                                     }, 800);
+                                    dipBotTimerRef.current.push(t3);
                                   }, 800);
+                                  dipBotTimerRef.current.push(t2);
                                 }, 800);
+                                dipBotTimerRef.current = [t1];
                               }
                             }}
                             className="flex-1 rounded-lg text-xs font-bold flex items-center justify-center transition-all"
