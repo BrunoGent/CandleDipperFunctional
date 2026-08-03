@@ -444,14 +444,30 @@ void loop() {
     webServer.handleClient();
   }
 
-  // Live screen refresh on Manual Page when scale weight or position changes
+  // Live screen refresh on Manual Page when scale weight, position, or manual jog occurs
   if (data.currentPage == PAGE_MANUAL) {
-    if (!data.isHomingActive && !data.isDipBotActive) {
+    if (data.isUpPressed) {
+      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 30);
+      data.currentPosition = motorMgr.getCurrentPositionMM();
+      static unsigned long lastPosUpdate = 0;
+      if (millis() - lastPosUpdate > 150) {
+        lastPosUpdate = millis();
+        display.markPageChanged(true);
+      }
+    } else if (data.isDownPressed) {
+      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 30);
+      data.currentPosition = motorMgr.getCurrentPositionMM();
+      static unsigned long lastPosUpdate = 0;
+      if (millis() - lastPosUpdate > 150) {
+        lastPosUpdate = millis();
+        display.markPageChanged(true);
+      }
+    } else if (!data.isHomingActive && !data.isDipBotActive) {
       motorMgr.stopMotor();
       static unsigned long lastScaleRefresh = 0;
       if (millis() - lastScaleRefresh >= 250) {
         lastScaleRefresh = millis();
-        if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || abs(data.currentPosition - lastPosDisplayed) >= 0.2f) {
+        if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || abs(data.currentPosition - lastPosDisplayed) >= 0.1f) {
           lastWtDisplayed = data.currentWeight;
           lastPosDisplayed = data.currentPosition;
           display.markPageChanged(true);

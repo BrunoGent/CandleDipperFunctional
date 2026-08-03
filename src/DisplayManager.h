@@ -167,7 +167,6 @@ private:
   void drawManualPage();
   void drawSettingsHub();
   void drawSettingsList(int startIndex, int count);
-  void drawMotorPage();
   void drawScreenDashboard();
   void drawWifiPortalPage();
   void drawNumpad();
