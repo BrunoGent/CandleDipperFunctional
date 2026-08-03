@@ -5,7 +5,7 @@ static const char* settingNames[15] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
   "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed",
   "Col. Limit", "Soft Limit", "Weight Dwell", "Soft Ramp",
-  "Driver Mode", "Hybrid Speed", "Auto Dip Timer"
+  "Driver Mode", "Hybrid Speed", "Screensaver Time"
 };
 static const char* settingUnits[15] = {
   "g", "g", "dips", "dips",
@@ -373,11 +373,11 @@ void DisplayManager::drawScreenDashboard() {
   canvas.setTextColor(c_btnTxt, c_btn1);
   canvas.drawString(themeNames[data.s_theme], 235, y1 + 16);
 
-  // Row 2: Auto Dip Timer
+  // Row 2: Screensaver Time
   int y2 = 121;
   canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Auto Dip Timer", 10, y2 + 15);
+  canvas.drawString("Screensaver", 10, y2 + 15);
   canvas.fillRoundRect(160, y2, 150, 32, 5, c_outline);
   canvas.setTextDatum(middle_center);
   canvas.setTextColor(TFT_WHITE, c_outline);
@@ -572,7 +572,7 @@ void DisplayManager::renderCurrentPage() {
       if (data.showNumpad) drawNumpad(); else drawSettingsList(8, 4); 
       break;
     case PAGE_SETTING_SCREEN: 
-      drawScreenDashboard(); 
+      if (data.showNumpad) drawNumpad(); else drawScreenDashboard(); 
       break;
     case PAGE_SETTING_MOTOR:
       if (data.showNumpad) drawNumpad(); else drawMotorPage();
@@ -643,8 +643,8 @@ UiEvent DisplayManager::updateTouch() {
 
     // Brightness bar slider adjustment
     if (data.currentPage == PAGE_SETTING_SCREEN && touch.isPressed() && !data.showNumpad) {
-      if (touch.y >= 60 && touch.y <= 110 && touch.x >= 40 && touch.x <= 280) {
-        int bVal = map(touch.x, 40, 280, 1, 99);
+      if (touch.y >= 45 && touch.y <= 77 && touch.x >= 160 && touch.x <= 310) {
+        int bVal = map(touch.x, 160, 310, 1, 99);
         setBrightness(bVal);
         data.pageChanged = true;
         eventTriggered = UI_EVENT_BRIGHTNESS_CHANGED;
@@ -683,11 +683,11 @@ UiEvent DisplayManager::updateTouch() {
           eventTriggered = UI_EVENT_FINISH_DIP;
         }
       }
-      else if (ty > bottomStartY && (data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_SCREEN)) {
+      else if (ty > bottomStartY && !data.showNumpad && (data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_SCREEN)) {
         data.currentPage = PAGE_SETTINGS_HUB; 
         data.pageChanged = true;
       }
-      else if (ty > bottomStartY && data.currentPage == PAGE_SETTING_MOTOR) {
+      else if (ty > bottomStartY && !data.showNumpad && data.currentPage == PAGE_SETTING_MOTOR) {
         data.currentPage = PAGE_SETTINGS_HUB_2;
         data.pageChanged = true;
       }

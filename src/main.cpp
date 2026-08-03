@@ -531,7 +531,7 @@ void loop() {
     lastTouchTime = millis();
   }
 
-  // Auto Dip Screen Return Timer (if enabled and idle)
+  // Screensaver return timer (if enabled and idle)
   if (data.s_autoDipTimer > 0 && 
       data.currentPage != PAGE_WEIGHT_DIP && 
       data.currentPage != PAGE_ACTIVE_DIP && 
