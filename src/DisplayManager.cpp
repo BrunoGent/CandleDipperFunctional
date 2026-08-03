@@ -1,12 +1,18 @@
 #include "DisplayManager.h"
 
 // Setting metadata arrays
-static const char* settingNames[11] = {
+static const char* settingNames[14] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
-  "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit",
+  "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed",
+  "Col. Limit", "Soft Limit", "Weight Dwell", "Soft Ramp",
   "Driver Mode", "Hybrid Speed"
 };
-static const char* settingUnits[11] = { "g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g", "", "mm/s" };
+static const char* settingUnits[14] = {
+  "g", "g", "dips", "dips",
+  "s", "s", "mm/s", "mm/s",
+  "g", "mm", "ms", "ms",
+  "", "mm/s"
+};
 static const char* themeNames[3] = { "Original", "Bee Mine", "Dark Mode" };
 
 DisplayManager::DisplayManager() : _display(&M5.Display), canvas(&M5.Display) {
@@ -68,12 +74,18 @@ void DisplayManager::setBrightness(int percent) {
 
 const char* DisplayManager::getPageTitle() const {
   switch (data.currentPage) {
-    case PAGE_WEIGHT_DIP:   return "Weight-Based";
-    case PAGE_DIPS_DIP:     return "Dips-Based";
-    case PAGE_MANUAL:       return "Manual Control";
-    case PAGE_SETTINGS_HUB: return "Settings Hub";
-    case PAGE_WIFI_PORTAL:  return "Wi-Fi Portal";
-    default:                return "Settings";
+    case PAGE_WEIGHT_DIP:     return "Weight-Based";
+    case PAGE_DIPS_DIP:       return "Dips-Based";
+    case PAGE_MANUAL:         return "Manual Control";
+    case PAGE_SETTINGS_HUB:   return "Settings (1/2)";
+    case PAGE_SETTINGS_HUB_2: return "Settings (2/2)";
+    case PAGE_SETTING_DIPPING:return "Dipping Settings";
+    case PAGE_SETTING_MOTION: return "Motion Settings";
+    case PAGE_SETTING_SENSOR: return "Sensor Settings";
+    case PAGE_SETTING_SCREEN: return "Screen Settings";
+    case PAGE_SETTING_MOTOR:  return "Motor Settings";
+    case PAGE_WIFI_PORTAL:    return "Wi-Fi Portal";
+    default:                  return "Settings";
   }
 }
 
@@ -88,8 +100,11 @@ int DisplayManager::getSettingValue(int index) const {
      case 6: return data.s_upSpeed; 
      case 7: return data.s_downSpeed;
      case 8: return data.s_colLimit;
-     case 9: return data.s_tmcMode;
-     case 10: return data.s_tmcThreshold;
+     case 9: return data.s_softLimit;
+     case 10: return data.s_weightDwell;
+     case 11: return data.s_softRamp;
+     case 12: return data.s_tmcMode;
+     case 13: return data.s_tmcThreshold;
   }
   return 0;
 }
@@ -105,8 +120,11 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 6: data.s_upSpeed = val; break;
      case 7: data.s_downSpeed = val; break;
      case 8: data.s_colLimit = -abs(val); break;
-     case 9: data.s_tmcMode = (val < 0) ? 0 : (val % 3); break;
-     case 10: data.s_tmcThreshold = val; break;
+     case 9: data.s_softLimit = abs(val); break;
+     case 10: data.s_weightDwell = abs(val); break;
+     case 11: data.s_softRamp = abs(val); break;
+     case 12: data.s_tmcMode = (val < 0) ? 0 : (val % 3); break;
+     case 13: data.s_tmcThreshold = abs(val); break;
   }
 }
 
@@ -171,8 +189,18 @@ void DisplayManager::drawBottomBanner() {
   canvas.setTextDatum(middle_center);
   
   if (data.currentPage == PAGE_WIFI_PORTAL) {
-      canvas.drawString("EXIT PORTAL", 160, startY + (bannerHeight / 2));
-  } else if (data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_SCREEN) {
+      canvas.drawString("< BACK TO HUB", 160, startY + (bannerHeight / 2));
+  } else if (data.currentPage == PAGE_SETTINGS_HUB) {
+      canvas.setTextDatum(middle_left);
+      canvas.drawString("< MAIN MENU", 15, startY + (bannerHeight / 2));
+      canvas.setTextDatum(middle_right);
+      canvas.drawString("PAGE 2 >", 305, startY + (bannerHeight / 2));
+  } else if (data.currentPage == PAGE_SETTINGS_HUB_2) {
+      canvas.setTextDatum(middle_left);
+      canvas.drawString("< PAGE 1", 15, startY + (bannerHeight / 2));
+      canvas.setTextDatum(middle_right);
+      canvas.drawString("MAIN MENU >", 305, startY + (bannerHeight / 2));
+  } else if ((data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_SCREEN) || data.currentPage == PAGE_SETTING_MOTOR) {
       canvas.drawString("< BACK TO HUB", 160, startY + (bannerHeight / 2));
   } else if (data.currentSubState == SUB_MAIN) {
       char bannerText[32]; snprintf(bannerText, sizeof(bannerText), "< %s >", getPageTitle());
@@ -238,6 +266,64 @@ void DisplayManager::drawSettingsHub() {
   drawButton(165, 125, 145, 65, "Screen", c_btn2, c_btnTxt);
 }
 
+void DisplayManager::drawSettingsHub2() {
+  canvas.fillScreen(c_bg);
+  drawTopBanner(); drawBottomBanner();
+  
+  drawButton(10, 45, 145, 65, "Motor", c_btn1, c_btnTxt);
+  drawButton(165, 45, 145, 65, "Wi-Fi", c_btn2, c_btnTxt);
+
+  // Reserved card slots
+  canvas.fillRoundRect(10, 125, 145, 65, 10, c_outline);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(TFT_DARKGREY, c_outline);
+  canvas.drawString("--", 82, 157);
+
+  canvas.fillRoundRect(165, 125, 145, 65, 10, c_outline);
+  canvas.drawString("--", 237, 157);
+}
+
+void DisplayManager::drawMotorPage() {
+  canvas.fillScreen(c_bg);
+  drawTopBanner(); drawBottomBanner();
+
+  static const char* modeLabels[3] = { "StealthChop", "SpreadCycle", "Adaptive" };
+
+  // Row 0: Driver Mode
+  int y0 = 45;
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
+  canvas.drawString("Driver Mode", 10, y0 + 15);
+  canvas.fillRoundRect(160, y0, 150, 32, 5, c_btn1);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(c_btnTxt, c_btn1);
+  canvas.drawString(modeLabels[data.s_tmcMode % 3], 235, y0 + 16);
+
+  // Row 1: Speed Threshold (for Adaptive mode)
+  int y1 = 83;
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
+  canvas.drawString("Hybrid Speed", 10, y1 + 15);
+  uint16_t threshBg = (data.s_tmcMode == 2) ? c_btn1 : c_outline;
+  uint16_t threshTxt = (data.s_tmcMode == 2) ? c_btnTxt : TFT_DARKGREY;
+  canvas.fillRoundRect(160, y1, 150, 32, 5, threshBg);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(threshTxt, threshBg);
+  String threshStr = String(data.s_tmcThreshold) + " mm/s";
+  canvas.drawString(threshStr.c_str(), 235, y1 + 16);
+
+  // Row 2: Motor Power Toggle
+  int y2 = 121;
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
+  canvas.drawString("Motor Power", 10, y2 + 15);
+  uint16_t btnColor = data.isMotorEnabled ? canvas.color565(40, 140, 40) : canvas.color565(160, 40, 40);
+  canvas.fillRoundRect(160, y2, 150, 32, 5, btnColor);
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(TFT_WHITE, btnColor);
+  canvas.drawString(data.isMotorEnabled ? "ENABLED" : "DISABLED", 235, y2 + 16);
+}
+
 void DisplayManager::drawSettingsList(int startIndex, int count) {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
@@ -254,10 +340,6 @@ void DisplayManager::drawSettingsList(int startIndex, int count) {
       canvas.setTextColor(TFT_WHITE, c_outline);
       String valStr = String(getSettingValue(index)) + " " + settingUnits[index];
       canvas.drawString(valStr.c_str(), 235, yPos + 16);
-  }
-
-  if (data.currentPage == PAGE_SETTING_SENSOR) {
-      drawButton(10, 130, 300, 45, "RESET WI-FI PORTAL", c_btn2, c_btnTxt);
   }
 }
 
@@ -456,6 +538,9 @@ void DisplayManager::renderCurrentPage() {
     case PAGE_SETTINGS_HUB: 
       drawSettingsHub(); 
       break;
+    case PAGE_SETTINGS_HUB_2:
+      drawSettingsHub2();
+      break;
     case PAGE_SETTING_DIPPING: 
       if (data.showNumpad) drawNumpad(); else drawSettingsList(0, 4); 
       break;
@@ -463,10 +548,13 @@ void DisplayManager::renderCurrentPage() {
       if (data.showNumpad) drawNumpad(); else drawSettingsList(4, 4); 
       break;
     case PAGE_SETTING_SENSOR: 
-      if (data.showNumpad) drawNumpad(); else drawSettingsList(8, 1); 
+      if (data.showNumpad) drawNumpad(); else drawSettingsList(8, 4); 
       break;
     case PAGE_SETTING_SCREEN: 
       drawScreenDashboard(); 
+      break;
+    case PAGE_SETTING_MOTOR:
+      if (data.showNumpad) drawNumpad(); else drawMotorPage();
       break;
     case PAGE_WIFI_PORTAL: 
       drawWifiPortalPage(); 
@@ -574,8 +662,22 @@ UiEvent DisplayManager::updateTouch() {
           eventTriggered = UI_EVENT_FINISH_DIP;
         }
       }
-      else if (ty > bottomStartY && data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_SCREEN) {
+      else if (ty > bottomStartY && (data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_SCREEN)) {
         data.currentPage = PAGE_SETTINGS_HUB; 
+        data.pageChanged = true;
+      }
+      else if (ty > bottomStartY && data.currentPage == PAGE_SETTING_MOTOR) {
+        data.currentPage = PAGE_SETTINGS_HUB_2;
+        data.pageChanged = true;
+      }
+      else if (ty > bottomStartY && data.currentPage == PAGE_SETTINGS_HUB) {
+        if (tx < 160) data.currentPage = PAGE_WEIGHT_DIP;
+        else data.currentPage = PAGE_SETTINGS_HUB_2;
+        data.pageChanged = true;
+      }
+      else if (ty > bottomStartY && data.currentPage == PAGE_SETTINGS_HUB_2) {
+        if (tx < 160) data.currentPage = PAGE_SETTINGS_HUB;
+        else data.currentPage = PAGE_WEIGHT_DIP;
         data.pageChanged = true;
       }
       else if (ty > bottomStartY && !data.showNumpad) {
@@ -629,24 +731,45 @@ UiEvent DisplayManager::updateTouch() {
           data.pageChanged = true;
         }
       }
-      else if (data.currentPage == PAGE_SETTING_SENSOR) {
-        if (ty >= 130 && ty <= 175 && tx >= 10 && tx <= 310) {
-          eventTriggered = UI_EVENT_START_WIFI_PORTAL;
-        } else if (tx >= 160 && tx <= 310 && ty >= 45 && ty <= 83) {
-          data.activeSetting = 8;
-          data.numpadStr = ""; 
-          data.showNumpad = true; 
-          data.pageChanged = true;
+      else if (data.currentPage == PAGE_SETTINGS_HUB_2) {
+        if (ty >= 45 && ty <= 110) {
+          if (tx < 160) {
+            data.currentPage = PAGE_SETTING_MOTOR;
+            data.pageChanged = true;
+          } else {
+            data.currentPage = PAGE_WIFI_PORTAL;
+            data.pageChanged = true;
+            eventTriggered = UI_EVENT_START_WIFI_PORTAL;
+          }
         }
       }
-      else if (data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_MOTION) {
+      else if (data.currentPage == PAGE_SETTING_MOTOR) {
+        if (tx >= 160 && tx <= 310) {
+          if (ty >= 45 && ty <= 77) { // Driver Mode Toggle
+            data.s_tmcMode = (data.s_tmcMode + 1) % 3;
+            data.pageChanged = true;
+            eventTriggered = UI_EVENT_SETTING_UPDATED;
+          } else if (ty >= 83 && ty <= 115) { // Hybrid Speed Threshold Numpad
+            data.activeSetting = 13;
+            data.numpadStr = "";
+            data.showNumpad = true;
+            data.pageChanged = true;
+          } else if (ty >= 121 && ty <= 153) { // Motor Power Toggle
+            data.isMotorEnabled = !data.isMotorEnabled;
+            data.pageChanged = true;
+            eventTriggered = UI_EVENT_MOTOR_ENABLE_TOGGLE;
+          }
+        }
+      }
+      else if (data.currentPage >= PAGE_SETTING_DIPPING && data.currentPage <= PAGE_SETTING_SENSOR) {
         if (tx >= 160 && tx <= 310) {
           int row = (ty - 45) / 38;
           if (row >= 0 && row < 4) {
             if (data.currentPage == PAGE_SETTING_DIPPING) data.activeSetting = 0 + row;
             else if (data.currentPage == PAGE_SETTING_MOTION) data.activeSetting = 4 + row;
+            else if (data.currentPage == PAGE_SETTING_SENSOR) data.activeSetting = 8 + row;
             
-            if (data.activeSetting <= 8) {
+            if (data.activeSetting <= 13) {
               data.numpadStr = ""; 
               data.showNumpad = true; 
               data.pageChanged = true;

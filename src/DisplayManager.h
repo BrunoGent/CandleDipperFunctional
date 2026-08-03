@@ -9,6 +9,7 @@ enum AppState {
   PAGE_DIPS_DIP,
   PAGE_MANUAL,
   PAGE_SETTINGS_HUB,  
+  PAGE_SETTINGS_HUB_2,
   PAGE_SETTING_DIPPING,
   PAGE_SETTING_MOTION,
   PAGE_SETTING_MOTOR,
@@ -73,11 +74,14 @@ struct DisplayData {
   int s_downSpeed = 50;
   int s_upSpeed = 60;
   int s_colLimit = -50;
-  int s_tmcMode = 1;      // 0: StealthChop, 1: SpreadCycle, 2: Adaptive
-  int s_tmcThreshold = 30;// Adaptive Threshold (mm/s)
+  int s_softLimit = 500;   // Soft Limit Guard in mm (default 500)
+  int s_weightDwell = 500; // Dwell time before scale reading in ms (default 500)
+  int s_softRamp = 50;     // Soft stop ramp in ms (default 50)
+  int s_tmcMode = 1;       // 0: StealthChop, 1: SpreadCycle, 2: Adaptive
+  int s_tmcThreshold = 30; // Adaptive Threshold (mm/s)
   bool isMotorEnabled = true; // Motor power enable/disable toggle
-  int s_brightness = 50; // 1 to 99%
-  int s_theme = 1;       // 0: Original, 1: Bee Mine, 2: Dark Mode
+  int s_brightness = 50;  // 1 to 99%
+  int s_theme = 1;        // 0: Original, 1: Bee Mine, 2: Dark Mode
 
   // Numpad Editor State
   bool showNumpad = false;
@@ -166,6 +170,8 @@ private:
   void drawPage1_2();
   void drawManualPage();
   void drawSettingsHub();
+  void drawSettingsHub2();
+  void drawMotorPage();
   void drawSettingsList(int startIndex, int count);
   void drawScreenDashboard();
   void drawWifiPortalPage();

@@ -145,8 +145,11 @@ void setup() {
   data.s_upSpeed    = prefs.getInt("s6", 60);
   data.s_downSpeed  = prefs.getInt("s7", 50);
   data.s_colLimit   = prefs.getInt("s8", -50); 
-  data.s_tmcMode    = prefs.getInt("s9", 1);  // Default: SpreadCycle (1)
-  data.s_tmcThreshold = prefs.getInt("s10", 30);
+  data.s_softLimit  = prefs.getInt("s9", 500);
+  data.s_weightDwell = prefs.getInt("s10", 500);
+  data.s_softRamp   = prefs.getInt("s11", 50);
+  data.s_tmcMode    = prefs.getInt("s12", 1);  // Default: SpreadCycle (1)
+  data.s_tmcThreshold = prefs.getInt("s13", 30);
   data.s_brightness = prefs.getInt("bright", 50);
   data.s_theme      = prefs.getInt("theme", 1);
   data.wifiSSID     = prefs.getString("wssid", "Trooli_BB00");
@@ -280,6 +283,11 @@ void processActiveDipping() {
           return;
         }
 
+        if (data.s_softLimit > 0 && data.currentPosition >= (float)data.s_softLimit) {
+          Serial.println("Soft Limit Guard reached!");
+          break;
+        }
+
         digitalWrite(PIN_MOTOR_STEP, HIGH);
         delayMicroseconds(3);
         digitalWrite(PIN_MOTOR_STEP, LOW);
@@ -362,6 +370,13 @@ void processActiveDipping() {
       }
 
       motorMgr.stopMotor();
+
+      // Dwell time before scale reading
+      if (data.s_weightDwell > 0) {
+        delay(data.s_weightDwell);
+      }
+      sensorMgr.update();
+      data.currentWeight = sensorMgr.getWeightGrams();
 
       // Check if dipping process finished
       bool isSlim = data.isActiveSlimProfile;
@@ -557,7 +572,7 @@ void loop() {
 
     case UI_EVENT_SETTING_UPDATED:
       // Persist modified setting to Preferences
-      if (data.activeSetting >= 0 && data.activeSetting <= 10) {
+      if (data.activeSetting >= 0 && data.activeSetting <= 13) {
         char keyStr[8];
         snprintf(keyStr, sizeof(keyStr), "s%d", data.activeSetting);
         prefs.putInt(keyStr, display.getSettingValue(data.activeSetting));
