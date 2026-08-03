@@ -469,31 +469,34 @@ void loop() {
 
   // Live screen refresh on Manual Page when scale weight, position, or manual jog occurs
   if (data.currentPage == PAGE_MANUAL) {
-    if (data.isUpPressed || data.isDownPressed) {
-      bool dirUp = data.isUpPressed;
-      unsigned long startMs = millis();
-      while (millis() - startMs < 50) {
-        sensorMgr.update();
-        float currentPos = motorMgr.getCurrentPositionMM();
-        if (dirUp) {
-          if (sensorMgr.isTopLimitHit() || currentPos <= 0.0f) {
-            data.isUpPressed = false;
-            motorMgr.stopMotor();
-            display.markPageChanged(true);
-            break;
-          }
-        } else {
-          if (sensorMgr.isCapSensorTriggered() || (data.s_softLimit > 0 && currentPos >= (float)data.s_softLimit)) {
-            data.isDownPressed = false;
-            motorMgr.stopMotor();
-            display.markPageChanged(true);
-            break;
-          }
+    if (data.isUpPressed) {
+      if (data.limitSwitchOn || data.currentPosition <= 0.0f) {
+        data.isUpPressed = false;
+        motorMgr.stopMotor();
+        display.markPageChanged(true);
+      } else {
+        motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 50);
+        data.currentPosition = motorMgr.getCurrentPositionMM();
+        static unsigned long lastPosUpdate = 0;
+        if (millis() - lastPosUpdate > 250) {
+          lastPosUpdate = millis();
+          display.markPageChanged(true);
         }
-        motorMgr.stepMotor(dirUp, (float)data.manualSpeed);
-        delayMicroseconds(5);
       }
-      data.currentPosition = motorMgr.getCurrentPositionMM();
+    } else if (data.isDownPressed) {
+      if (data.capSensorOn || (data.s_softLimit > 0 && data.currentPosition >= (float)data.s_softLimit)) {
+        data.isDownPressed = false;
+        motorMgr.stopMotor();
+        display.markPageChanged(true);
+      } else {
+        motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 50);
+        data.currentPosition = motorMgr.getCurrentPositionMM();
+        static unsigned long lastPosUpdate = 0;
+        if (millis() - lastPosUpdate > 250) {
+          lastPosUpdate = millis();
+          display.markPageChanged(true);
+        }
+      }
     } else if (!data.isHomingActive && !data.isDipBotActive) {
       motorMgr.stopMotor();
       static unsigned long lastScaleRefresh = 0;
@@ -610,15 +613,7 @@ void loop() {
       break;
 
     case UI_EVENT_START_DIP:
-      Serial.println("UI Event: Auto-homing to 0mm before dipping process...");
-      data.currentPage = PAGE_ACTIVE_DIP;
-      data.currentPhaseText = "Auto-Homing to 0mm...";
-      display.markPageChanged(true);
-      display.renderCurrentPage();
-
-      // Perform homing motion to top limit switch first so 0mm is accurately calibrated
-      motorMgr.performHoming((float)data.s_upSpeed);
-
+      Serial.println("UI Event: Starting dipping process immediately...");
       motorMgr.stopMotor();
       scaleMgr.tare(10);
       scaleMgr.update();
@@ -628,6 +623,7 @@ void loop() {
       phaseStartTime = millis();
       currentDipPhase = DIP_PHASE_LOWERING;
       data.currentPhaseText = "Dip 1: Lowering...";
+      data.currentPage = PAGE_ACTIVE_DIP;
       display.markPageChanged(true);
       M5.Speaker.tone(1800, 200);
       saveProcessHistoryToPrefs();
