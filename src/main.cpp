@@ -188,26 +188,18 @@ void setup() {
     Serial.println("Display Manager Initialization Failed!");
   }
 
-  // Boot Splash Screen
-  M5.Display.fillScreen(TFT_BLACK);
-  uint16_t logoColor = M5.Display.color565(255, 235, 130); // Bee Mine Pastel Yellow
-  int logoX = (M5.Display.width() - LOGO_WIDTH) / 2;
-  int logoY = (M5.Display.height() - LOGO_HEIGHT) / 2;
-  M5.Display.drawBitmap(logoX, logoY, epd_bitmap_beemine_logo_only_with_colita, LOGO_WIDTH, LOGO_HEIGHT, logoColor);
-
   // Attempt Wi-Fi Connection
   WiFi.mode(WIFI_STA);
   WiFi.begin(data.wifiSSID.c_str(), wifiPass.c_str());
   unsigned long startWifi = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 3000) {
-    delay(100);
+  while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 1500) {
+    delay(50);
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     syncNtpTime();
   }
 
-  delay(1000);
   display.markPageChanged(true);
 }
 

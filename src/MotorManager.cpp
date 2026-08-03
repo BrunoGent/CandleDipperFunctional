@@ -6,6 +6,37 @@ const float MotorManager::STEPS_PER_MM = 200.0f;
 MotorManager::MotorManager()
   : _sensors(nullptr), _currentMode(MODE_STEALTHCHOP), _enabled(false), _positionMM(0.0f), _maxSoftLimitMM(500.0f), _lastStepMicros(0) {}
 
+static uint8_t calcTMC2209CRC(const uint8_t* data, uint8_t len) {
+  uint8_t crc = 0;
+  for (uint8_t i = 0; i < len; i++) {
+    uint8_t currentByte = data[i];
+    for (uint8_t j = 0; j < 8; j++) {
+      if ((crc >> 7) ^ (currentByte & 0x01)) {
+        crc = (crc << 1) ^ 0x07;
+      } else {
+        crc = (crc << 1);
+      }
+      currentByte >>= 1;
+    }
+  }
+  return crc;
+}
+
+void MotorManager::sendUARTCommand(uint8_t reg, uint32_t val) {
+  uint8_t msg[8];
+  msg[0] = 0x05; // TMC2209 Sync byte
+  msg[1] = 0x00; // Slave address 0
+  msg[2] = reg | 0x80; // Write register
+  msg[3] = (val >> 24) & 0xFF;
+  msg[4] = (val >> 16) & 0xFF;
+  msg[5] = (val >> 8) & 0xFF;
+  msg[6] = val & 0xFF;
+  msg[7] = calcTMC2209CRC(msg, 7);
+
+  Serial2.write(msg, 8);
+  Serial2.flush();
+}
+
 void MotorManager::begin(SensorManager* sensorMgr) {
   _sensors = sensorMgr;
 
@@ -20,6 +51,10 @@ void MotorManager::begin(SensorManager* sensorMgr) {
   // Enable driver (Active LOW)
   digitalWrite(PIN_MOTOR_ENABLE, LOW);
   _enabled = true;
+
+  // Initialize Serial2 for TMC2209 Single-Wire UART
+  Serial2.begin(115200, SERIAL_8N1, -1, PIN_MOTOR_UART);
+  delay(10);
 
   // Initialize TMC2209 driver registers over UART:
   // 1. IHOLD_IRUN (0x10): Run current = 16 (~0.6A RMS), Standby = 8, Hold delay = 6
@@ -39,7 +74,6 @@ void MotorManager::begin(SensorManager* sensorMgr) {
 }
 
 void MotorManager::setTMCMode(TMCMode mode) {
-  if (_currentMode == mode) return; // Do not resend UART packets if driver is already in requested mode
   _currentMode = mode;
   // Send TMC2209 UART packet to set GCONF register (0x00)
   if (mode == MODE_STEALTHCHOP) {
@@ -78,41 +112,6 @@ void MotorManager::setMotorEnable(bool enable) {
   digitalWrite(PIN_MOTOR_ENABLE, enable ? LOW : HIGH);
 }
 
-static uint8_t calcTMC2209CRC(const uint8_t* data, uint8_t len) {
-  uint8_t crc = 0;
-  for (uint8_t i = 0; i < len; i++) {
-    uint8_t currentByte = data[i];
-    for (uint8_t j = 0; j < 8; j++) {
-      if ((crc >> 7) ^ (currentByte >> 7)) {
-        crc = (crc << 1) ^ 0x07;
-      } else {
-        crc = (crc << 1);
-      }
-      currentByte <<= 1;
-    }
-  }
-  return crc;
-}
-
-void MotorManager::sendUARTCommand(uint8_t reg, uint32_t val) {
-  uint8_t msg[8];
-  msg[0] = 0x05; // TMC2209 Sync byte
-  msg[1] = 0x00; // Slave address 0
-  msg[2] = reg | 0x80; // Write register
-  msg[3] = (val >> 24) & 0xFF;
-  msg[4] = (val >> 16) & 0xFF;
-  msg[5] = (val >> 8) & 0xFF;
-  msg[6] = val & 0xFF;
-  msg[7] = calcTMC2209CRC(msg, 7);
-
-  // Hardware Serial2 write over single-wire UART (PIN_MOTOR_UART)
-  Serial2.begin(115200, SERIAL_8N1, -1, PIN_MOTOR_UART);
-  delayMicroseconds(300);
-  Serial2.write(msg, 8);
-  Serial2.flush();
-  delayMicroseconds(500);
-}
-
 void MotorManager::stopMotor() {
   digitalWrite(PIN_MOTOR_STEP, LOW);
 }
@@ -120,29 +119,18 @@ void MotorManager::stopMotor() {
 void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   if (speedMMps <= 0.0f) return;
 
-  // Keep StealthChop2 enabled for whisper-quiet motor operation up to 80 mm/s
-  if (speedMMps > 80.0f && _currentMode != MODE_SPREADCYCLE) {
-    setTMCMode(MODE_SPREADCYCLE);
-  } else if (speedMMps <= 80.0f && _currentMode != MODE_STEALTHCHOP) {
-    setTMCMode(MODE_STEALTHCHOP);
-  }
-
-  // Limit checks (throttled every 5ms)
-  static unsigned long lastSensorCheck = 0;
-  if (millis() - lastSensorCheck >= 5) {
-    lastSensorCheck = millis();
-    if (_sensors) {
-      if (directionUp) {
-        if ((_sensors && _sensors->readRawTopLimit()) || _positionMM <= 0.0f) {
-          if (_sensors && _sensors->readRawTopLimit()) _positionMM = 0.0f; // Calibrate home
-          stopMotor();
-          return;
-        }
-      } else {
-        if ((_sensors && _sensors->readRawCapSensor()) || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
-          stopMotor();
-          return;
-        }
+  // Immediate limit checks - NO throttling
+  if (_sensors) {
+    if (directionUp) {
+      if (_sensors->readRawTopLimit() || _positionMM <= 0.0f) {
+        if (_sensors->readRawTopLimit()) _positionMM = 0.0f;
+        stopMotor();
+        return;
+      }
+    } else {
+      if (_sensors->readRawCapSensor() || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
+        stopMotor();
+        return;
       }
     }
   }
@@ -174,19 +162,8 @@ void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   }
 }
 
-static bool isTopLimitActive(SensorManager* sensors) {
-  if (!sensors) return false;
-  return sensors->readRawTopLimit();
-}
-
 void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs) {
   if (speedMMps <= 0.0f) return;
-
-  if (speedMMps > 65.0f && _currentMode != MODE_SPREADCYCLE) {
-    setTMCMode(MODE_SPREADCYCLE);
-  } else if (speedMMps <= 65.0f && _currentMode != MODE_STEALTHCHOP) {
-    setTMCMode(MODE_STEALTHCHOP);
-  }
 
   digitalWrite(PIN_MOTOR_DIR, directionUp ? HIGH : LOW);
 
@@ -197,23 +174,19 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
 
   float stepDistMM = 1.0f / STEPS_PER_MM;
   unsigned long startMs = millis();
-  unsigned long lastSensorCheck = 0;
 
   while (millis() - startMs < burstMs) {
-    if (millis() - lastSensorCheck >= 5) {
-      lastSensorCheck = millis();
-      if (_sensors) {
-        if (directionUp) {
-          if ((_sensors && isTopLimitActive(_sensors)) || _positionMM <= 0.0f) {
-            if (_sensors && isTopLimitActive(_sensors)) _positionMM = 0.0f;
-            stopMotor();
-            break;
-          }
-        } else {
-          if ((_sensors && _sensors->readRawCapSensor()) || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
-            stopMotor();
-            break;
-          }
+    if (_sensors) {
+      if (directionUp) {
+        if (_sensors->readRawTopLimit() || _positionMM <= 0.0f) {
+          if (_sensors->readRawTopLimit()) _positionMM = 0.0f;
+          stopMotor();
+          break;
+        }
+      } else {
+        if (_sensors->readRawCapSensor() || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
+          stopMotor();
+          break;
         }
       }
     }
@@ -236,114 +209,78 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
 }
 
 bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
-  // Homing sequence: move UP at speedMMps until top limit switch engages
-  if (speedMMps <= 80.0f) {
-    setTMCMode(MODE_STEALTHCHOP);
-  } else {
-    setTMCMode(MODE_SPREADCYCLE);
-  }
+  if (speedMMps <= 0.0f) speedMMps = 50.0f;
 
-  // Pre-check: If limit switch is ALREADY pressed (e.g. carriage at top or manual press):
-  // Drive DOWN gently until switch releases
-  if (_sensors && isTopLimitActive(_sensors)) {
+  setTMCMode(MODE_STEALTHCHOP);
+
+  // Pre-check: If switch is ALREADY active when homing starts (e.g. carriage at top):
+  // Move DOWN gently until switch opens
+  if (_sensors && _sensors->readRawTopLimit()) {
     digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-    delayMicroseconds(50);
-    int maxClearSteps = (int)(10.0f * STEPS_PER_MM);
-    for (int i = 0; i < maxClearSteps; i++) {
-      if (stopCheck && stopCheck()) {
-        stopMotor();
-        setTMCMode(MODE_STEALTHCHOP);
-        return false;
-      }
+    delayMicroseconds(20);
+    int maxSteps = (int)(10.0f * STEPS_PER_MM);
+    for (int i = 0; i < maxSteps; i++) {
+      if (stopCheck && stopCheck()) { stopMotor(); return false; }
+      if (!_sensors->readRawTopLimit()) break;
       digitalWrite(PIN_MOTOR_STEP, HIGH);
       delayMicroseconds(3);
       digitalWrite(PIN_MOTOR_STEP, LOW);
-      delayMicroseconds(1000); // Gentle ~25 mm/s
-
-      if (!isTopLimitActive(_sensors) && i >= (int)(0.5f * STEPS_PER_MM)) {
-        break;
-      }
+      delayMicroseconds(250); // ~20 mm/s
     }
     stopMotor();
-    delay(100);
+    delay(50);
   }
-  
-  unsigned long startTimeout = millis();
+
+  // Stage 1: Search UP towards limit switch
+  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
+  delayMicroseconds(20);
   float stepsPerSec = speedMMps * STEPS_PER_MM;
   unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
   if (delayUs < 30) delayUs = 30;
 
-  // Stage 1: Fast search UP towards limit switch
-  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(50);
-
-  while (_sensors && !isTopLimitActive(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
+  unsigned long startTime = millis();
+  while (_sensors && !_sensors->readRawTopLimit()) {
+    if (stopCheck && stopCheck()) { stopMotor(); return false; }
+    if (millis() - startTime > 30000) { stopMotor(); return false; }
 
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
     delayMicroseconds(delayUs);
-
-    if (millis() - startTimeout > 60000) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
   }
 
-  // Motor hit limit switch: pause 100ms to allow motor to come to a full stop
   stopMotor();
-  delay(100);
+  delay(50);
 
-  // Stage 2: Back down 2.5mm gently until switch opens
+  // Stage 2: Back DOWN 2mm
   digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(50); // DIR setup time
-
-  int backoffSteps = (int)(2.5f * STEPS_PER_MM);
+  delayMicroseconds(20);
+  int backoffSteps = (int)(2.0f * STEPS_PER_MM);
   for (int i = 0; i < backoffSteps; i++) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
+    if (stopCheck && stopCheck()) { stopMotor(); return false; }
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(1200); // Smooth backoff speed (~20 mm/s)
-
-    if (!isTopLimitActive(_sensors) && i >= (int)(0.8f * STEPS_PER_MM)) {
-      break;
-    }
+    delayMicroseconds(300); // ~16 mm/s
   }
 
-  // Pause again before re-approaching
   stopMotor();
-  delay(100);
+  delay(50);
 
-  // Stage 3: Slowly re-approach home UP for precision zeroing
+  // Stage 3: Re-approach UP slowly (~15 mm/s) for precision zeroing
   digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(50);
+  delayMicroseconds(20);
+  while (_sensors && !_sensors->readRawTopLimit()) {
+    if (stopCheck && stopCheck()) { stopMotor(); return false; }
 
-  while (_sensors && !isTopLimitActive(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(2500); // Slow precise re-approach (~10 mm/s)
+    delayMicroseconds(330); // ~15 mm/s
   }
 
-  _positionMM = 0.0f; // Zero home reference position
+  _positionMM = 0.0f;
   stopMotor();
-  setTMCMode(MODE_STEALTHCHOP);
   return true;
 }
 
@@ -385,3 +322,4 @@ bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int hol
   stopMotor();
   return true;
 }
+
