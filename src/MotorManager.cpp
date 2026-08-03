@@ -4,7 +4,7 @@
 const float MotorManager::STEPS_PER_MM = 200.0f;
 
 MotorManager::MotorManager()
-  : _sensors(nullptr), _currentMode(MODE_STEALTHCHOP), _enabled(false), _positionMM(0.0f), _lastStepMicros(0) {}
+  : _sensors(nullptr), _currentMode(MODE_STEALTHCHOP), _enabled(false), _positionMM(0.0f), _maxSoftLimitMM(500.0f), _lastStepMicros(0) {}
 
 void MotorManager::begin(SensorManager* sensorMgr) {
   _sensors = sensorMgr;
@@ -143,13 +143,13 @@ void MotorManager::stepMotor(bool directionUp, float speedMMps) {
     lastSensorCheck = millis();
     if (_sensors) {
       if (directionUp) {
-        if (_sensors->readRawTopLimit() || _positionMM <= 0.0f) {
-          if (_sensors->readRawTopLimit()) _positionMM = 0.0f; // Calibrate home
+        if ((_sensors && _sensors->readRawTopLimit()) || _positionMM <= 0.0f) {
+          if (_sensors && _sensors->readRawTopLimit()) _positionMM = 0.0f; // Calibrate home
           stopMotor();
           return;
         }
       } else {
-        if (_sensors->readRawCapSensor()) {
+        if ((_sensors && _sensors->readRawCapSensor()) || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
           stopMotor();
           return;
         }
@@ -209,13 +209,13 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
       lastSensorCheck = millis();
       if (_sensors) {
         if (directionUp) {
-          if (_sensors->readRawTopLimit() || _positionMM <= 0.0f) {
-            if (_sensors->readRawTopLimit()) _positionMM = 0.0f;
+          if ((_sensors && _sensors->readRawTopLimit()) || _positionMM <= 0.0f) {
+            if (_sensors && _sensors->readRawTopLimit()) _positionMM = 0.0f;
             stopMotor();
             break;
           }
         } else {
-          if (_sensors->readRawCapSensor()) {
+          if ((_sensors && _sensors->readRawCapSensor()) || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
             stopMotor();
             break;
           }

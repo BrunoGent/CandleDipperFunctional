@@ -220,8 +220,17 @@ void DisplayManager::drawPage1_2() {
   drawTopBanner(); drawBottomBanner();
   
   if (data.currentSubState == SUB_MAIN) {
-      drawButton(10, 65, 140, 105, "WEIGHT BASED", c_btn1, c_btnTxt);
-      drawButton(170, 65, 140, 105, "DIPS BASED", c_btn2, c_btnTxt);
+      canvas.fillRoundRect(10, 65, 140, 105, 10, c_btn1);
+      canvas.setTextColor(c_btnTxt, c_btn1);
+      canvas.setTextDatum(middle_center);
+      canvas.drawString("WEIGHT", 80, 100);
+      canvas.drawString("CONTROL", 80, 130);
+
+      canvas.fillRoundRect(170, 65, 140, 105, 10, c_btn2);
+      canvas.setTextColor(c_btnTxt, c_btn2);
+      canvas.setTextDatum(middle_center);
+      canvas.drawString("DIPS", 240, 100);
+      canvas.drawString("CONTROL", 240, 130);
   } else if (data.currentSubState == SUB_SELECT_PROFILE) {
       canvas.fillRoundRect(10, 65, 140, 105, 10, c_btn1);
       canvas.setTextColor(c_btnTxt, c_btn1);
@@ -240,29 +249,32 @@ void DisplayManager::drawPage1_2() {
       canvas.drawString(subStd, 240, 130);
   } else if (data.currentSubState == SUB_CONFIRM_OPTION) {
       canvas.fillRoundRect(10, 45, 300, 80, 8, c_outline);
-      canvas.setTextDatum(middle_left);
       canvas.setTextColor(TFT_WHITE, c_outline);
 
-      char line1[64];
-      snprintf(line1, sizeof(line1), "Mode: %s  |  Profile: %s", 
-               data.isActiveWeightBased ? "Weight" : "Dips",
-               data.isActiveSlimProfile ? "Slim" : "Standard");
-      canvas.drawString(line1, 20, 65);
+      // Line 1: Mode (Left) & Profile (Right)
+      canvas.setTextDatum(middle_left);
+      canvas.drawString(data.isActiveWeightBased ? "Mode: Weight" : "Mode: Dips", 20, 65);
+      canvas.setTextDatum(middle_right);
+      canvas.drawString(data.isActiveSlimProfile ? "Profile: Slim" : "Profile: Standard", 300, 65);
 
-      char line2[64];
+      // Line 2: Target (Left) & Est Time (Right)
+      char targetBuf[32];
       if (data.isActiveWeightBased) {
-        snprintf(line2, sizeof(line2), "Target Weight: %d g", data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt);
+        snprintf(targetBuf, sizeof(targetBuf), "Target: %d g", data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt);
       } else {
-        snprintf(line2, sizeof(line2), "Target Dips: %d dips", data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips);
+        snprintf(targetBuf, sizeof(targetBuf), "Target: %d dips", data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips);
       }
-      canvas.drawString(line2, 20, 95);
+      canvas.setTextDatum(middle_left);
+      canvas.drawString(targetBuf, 20, 95);
 
       int estSec = getAverageTime(data.isActiveWeightBased, data.isActiveSlimProfile);
       if (estSec <= 0) estSec = data.isActiveWeightBased ? (data.isActiveSlimProfile ? 180 : 300) : (data.isActiveSlimProfile ? 120 : 200);
       char estStr[32];
       formatTime(estSec, estStr, sizeof(estStr));
+      char estBuf[32];
+      snprintf(estBuf, sizeof(estBuf), "Est: %s", estStr);
       canvas.setTextDatum(middle_right);
-      canvas.drawString(estStr, 290, 95);
+      canvas.drawString(estBuf, 300, 95);
 
       drawButton(10, 135, 300, 55, "START DIP", c_active, TFT_BLACK);
   }
@@ -512,9 +524,9 @@ void DisplayManager::drawActiveDipPage() {
   char timeStr[64]; snprintf(timeStr, sizeof(timeStr), "Time: %s / %s (est)", elapsedStr, estStr);
   char targetStr[64];
   if (data.isActiveWeightBased) {
-    snprintf(targetStr, sizeof(targetStr), "Weight: %dg / %dg  (Jig: %.1fg)", (int)data.currentWeight, (data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt), data.initialJigWeight);
+    snprintf(targetStr, sizeof(targetStr), "Weight: %dg / %dg", (int)data.currentWeight, (data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt));
   } else {
-    snprintf(targetStr, sizeof(targetStr), "Dips: %d / %d  (Jig: %.1fg)", data.currentDipCount, (data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips), data.initialJigWeight);
+    snprintf(targetStr, sizeof(targetStr), "Dips: %d / %d", data.currentDipCount, (data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips));
   }
 
   canvas.setTextDatum(middle_center);
@@ -690,9 +702,13 @@ UiEvent DisplayManager::updateTouch() {
       }
       else if (data.currentPage == PAGE_ACTIVE_DIP) { 
         data.currentPage = PAGE_STOP_CONFIRM; 
+        data.stopConfirmEnterTime = millis();
         data.pageChanged = true; 
       }
       else if (data.currentPage == PAGE_STOP_CONFIRM) {
+        if (millis() - data.stopConfirmEnterTime < 500) {
+          return UI_EVENT_NONE;
+        }
         if (tx >= 20 && tx <= 150 && ty >= 150 && ty <= 220) { 
           data.currentPage = PAGE_ACTIVE_DIP; 
           data.pageChanged = true; 

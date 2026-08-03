@@ -90,6 +90,7 @@ struct DisplayData {
 
   // Active Dipping State
   unsigned long dipStartTime = 0;
+  unsigned long stopConfirmEnterTime = 0;
   unsigned long lastUiTick = 0;
   int estimatedTotalSeconds = 0;
   int finalElapsedSeconds = 0;

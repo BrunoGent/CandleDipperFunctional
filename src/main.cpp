@@ -42,6 +42,7 @@ bool checkManualStop() {
       data.isDipBotActive = false;
       if (data.currentPage == PAGE_ACTIVE_DIP) {
         data.currentPage = PAGE_STOP_CONFIRM;
+        data.stopConfirmEnterTime = millis();
       }
       motorMgr.stopMotor();
       display.markPageChanged(true);
@@ -268,30 +269,6 @@ void processActiveDipping() {
   char pTxt[64];
 
   switch (currentDipPhase) {
-    case DIP_PHASE_PRESTART_COUNTDOWN: {
-      motorMgr.stopMotor();
-      unsigned long elapsed = millis() - phaseStartTime;
-      int remSec = 3 - (int)(elapsed / 1000);
-
-      static int lastRemSec = -1;
-      if (remSec != lastRemSec) {
-        lastRemSec = remSec;
-        if (remSec > 0) {
-          snprintf(pTxt, sizeof(pTxt), "Jig Wt: %.1fg | Starting in %ds...", data.initialJigWeight, remSec);
-          data.currentPhaseText = String(pTxt);
-          display.markPageChanged(true);
-          M5.Speaker.tone(1000, 150);
-        } else {
-          M5.Speaker.tone(1800, 300);
-          currentDipPhase = DIP_PHASE_LOWERING;
-          data.currentPhaseText = "Dip 1: Lowering...";
-          display.markPageChanged(true);
-          lastRemSec = -1;
-        }
-      }
-      break;
-    }
-
     case DIP_PHASE_LOWERING: {
       float speed = (float)data.s_downSpeed;
       if (speed <= 0.0f) speed = 20.0f;
@@ -476,6 +453,9 @@ void loop() {
   sensorMgr.update();
   scaleMgr.update();
 
+  // Sync current soft limit setting to motor manager
+  motorMgr.setMaxSoftLimitMM((float)data.s_softLimit);
+
   // Sync current position and load cell weight into DisplayData container
   data.currentPosition = motorMgr.getCurrentPositionMM();
   data.currentWeight = scaleMgr.getWeightGrams();
@@ -490,20 +470,32 @@ void loop() {
   // Live screen refresh on Manual Page when scale weight, position, or manual jog occurs
   if (data.currentPage == PAGE_MANUAL) {
     if (data.isUpPressed) {
-      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 30);
-      data.currentPosition = motorMgr.getCurrentPositionMM();
-      static unsigned long lastPosUpdate = 0;
-      if (millis() - lastPosUpdate > 150) {
-        lastPosUpdate = millis();
+      if (data.limitSwitchOn || data.currentPosition <= 0.0f) {
+        data.isUpPressed = false;
+        motorMgr.stopMotor();
         display.markPageChanged(true);
+      } else {
+        motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 50);
+        data.currentPosition = motorMgr.getCurrentPositionMM();
+        static unsigned long lastPosUpdate = 0;
+        if (millis() - lastPosUpdate > 250) {
+          lastPosUpdate = millis();
+          display.markPageChanged(true);
+        }
       }
     } else if (data.isDownPressed) {
-      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 30);
-      data.currentPosition = motorMgr.getCurrentPositionMM();
-      static unsigned long lastPosUpdate = 0;
-      if (millis() - lastPosUpdate > 150) {
-        lastPosUpdate = millis();
+      if (data.capSensorOn || (data.s_softLimit > 0 && data.currentPosition >= (float)data.s_softLimit)) {
+        data.isDownPressed = false;
+        motorMgr.stopMotor();
         display.markPageChanged(true);
+      } else {
+        motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 50);
+        data.currentPosition = motorMgr.getCurrentPositionMM();
+        static unsigned long lastPosUpdate = 0;
+        if (millis() - lastPosUpdate > 250) {
+          lastPosUpdate = millis();
+          display.markPageChanged(true);
+        }
       }
     } else if (!data.isHomingActive && !data.isDipBotActive) {
       motorMgr.stopMotor();
@@ -621,25 +613,19 @@ void loop() {
       break;
 
     case UI_EVENT_START_DIP:
-      Serial.println("UI Event: Starting dipping process with zero tare & 3-2-1 countdown...");
+      Serial.println("UI Event: Starting dipping process immediately...");
       motorMgr.stopMotor();
       scaleMgr.tare(10);
       scaleMgr.update();
-      data.initialJigWeight = scaleMgr.getWeightGrams();
       data.currentWeight = 0.0f;
       data.currentDipCount = 1;
       data.dipStartTime = millis();
       phaseStartTime = millis();
-      currentDipPhase = DIP_PHASE_PRESTART_COUNTDOWN;
-      
-      {
-        char pTxt[64];
-        snprintf(pTxt, sizeof(pTxt), "Jig Wt: %.1fg | Starting in 3...", data.initialJigWeight);
-        data.currentPhaseText = String(pTxt);
-      }
+      currentDipPhase = DIP_PHASE_LOWERING;
+      data.currentPhaseText = "Dip 1: Lowering...";
       data.currentPage = PAGE_ACTIVE_DIP;
       display.markPageChanged(true);
-      M5.Speaker.tone(1000, 150);
+      M5.Speaker.tone(1800, 200);
       saveProcessHistoryToPrefs();
       break;
 

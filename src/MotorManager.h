@@ -35,18 +35,21 @@ public:
   bool performHoming(float speedMMps, bool (*stopCheck)() = nullptr);
   bool performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)() = nullptr);
 
-  // Position Management
+  // Position & Limit Management
   float getCurrentPositionMM() const { return _positionMM; }
   void setCurrentPositionMM(float pos) { _positionMM = pos; }
+  void setMaxSoftLimitMM(float maxLimit) { _maxSoftLimitMM = maxLimit; }
+  float getMaxSoftLimitMM() const { return _maxSoftLimitMM; }
 
   // Steps to MM conversion parameters
-  static const float STEPS_PER_MM; // e.g. 80.0 steps/mm (Lead screw T8x8)
+  static const float STEPS_PER_MM; // e.g. 200.0 steps/mm (Lead screw T8x8)
 
 private:
   SensorManager* _sensors;
   TMCMode _currentMode;
   bool _enabled;
   float _positionMM;
+  float _maxSoftLimitMM;
   unsigned long _lastStepMicros;
 
   void sendUARTCommand(uint8_t reg, uint32_t val);
