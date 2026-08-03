@@ -16,8 +16,8 @@ bool SensorManager::readRawTopLimit() {
 }
 
 bool SensorManager::readRawCapSensor() {
-  // Capacitive Sensor via Optocoupler: Active LOW or HIGH depending on optocoupler stage
-  return (digitalRead(PIN_WAX_LEVEL_SENS) == LOW);
+  // Capacitive Sensor: Active HIGH when wax/object detected
+  return (digitalRead(PIN_WAX_LEVEL_SENS) == HIGH);
 }
 
 void SensorManager::update() {
