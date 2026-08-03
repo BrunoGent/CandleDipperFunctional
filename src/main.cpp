@@ -35,13 +35,21 @@ void markActionStarted() {
 }
 
 bool checkManualStop() {
+  static unsigned long lastCheckTime = 0;
+  unsigned long now = millis();
+  // Throttle check to once every 40ms to keep microsecond stepper pulse timing smooth and jitter-free
+  if (now - lastCheckTime < 40) {
+    return false;
+  }
+  lastCheckTime = now;
+
   M5.update();
   DisplayData& data = display.getData();
   data.currentPosition = motorMgr.getCurrentPositionMM();
   data.currentWeight = scaleMgr.getWeightGrams();
 
   // Ignore touches for initial 400ms so button press that started action doesn't immediately abort it
-  if (millis() - g_actionStartTime < 400) {
+  if (now - g_actionStartTime < 400) {
     return false;
   }
 
