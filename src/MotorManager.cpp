@@ -192,15 +192,9 @@ void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   }
 }
 
-static bool isTopLimitActiveDebounced(SensorManager* sensors) {
+static bool isTopLimitActive(SensorManager* sensors) {
   if (!sensors) return false;
-  if (!sensors->readRawTopLimit()) return false;
-  // Verify over 5 consecutive samples spaced 400us apart to filter EMI noise pulses
-  for (int i = 0; i < 5; i++) {
-    delayMicroseconds(400);
-    if (!sensors->readRawTopLimit()) return false;
-  }
-  return true;
+  return sensors->readRawTopLimit();
 }
 
 void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs) {
@@ -228,8 +222,8 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
       lastSensorCheck = millis();
       if (_sensors) {
         if (directionUp) {
-          if ((_sensors && isTopLimitActiveDebounced(_sensors)) || _positionMM <= 0.0f) {
-            if (_sensors && isTopLimitActiveDebounced(_sensors)) _positionMM = 0.0f;
+          if ((_sensors && isTopLimitActive(_sensors)) || _positionMM <= 0.0f) {
+            if (_sensors && isTopLimitActive(_sensors)) _positionMM = 0.0f;
             stopMotor();
             break;
           }
@@ -273,7 +267,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   if (delayUs < 30) delayUs = 30;
 
   // Stage 1: Fast search towards limit switch
-  while (_sensors && !isTopLimitActiveDebounced(_sensors)) {
+  while (_sensors && !isTopLimitActive(_sensors)) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
@@ -293,8 +287,14 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     }
   }
 
-  // Stage 2: Back down 3mm slightly until switch opens
+  // Motor hit limit switch: pause 100ms to allow motor to come to a full stop
+  stopMotor();
+  delay(100);
+
+  // Stage 2: Back down 3mm gently until switch opens
   digitalWrite(PIN_MOTOR_DIR, LOW);
+  delayMicroseconds(50); // DIR setup time
+
   int backoffSteps = (int)(3.0f * STEPS_PER_MM);
   for (int i = 0; i < backoffSteps; i++) {
     if (stopCheck && stopCheck()) {
@@ -305,25 +305,31 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(300);
+    delayMicroseconds(1000); // Smooth, gentle backoff speed (~25 mm/s)
 
-    if (!isTopLimitActiveDebounced(_sensors) && i >= (int)(1.5f * STEPS_PER_MM)) {
+    if (!isTopLimitActive(_sensors) && i >= (int)(1.0f * STEPS_PER_MM)) {
       break;
     }
   }
 
+  // Pause again before re-approaching
+  stopMotor();
+  delay(100);
+
   // Stage 3: Slowly re-approach home for precision zeroing
-  while (_sensors && !isTopLimitActiveDebounced(_sensors)) {
+  digitalWrite(PIN_MOTOR_DIR, HIGH);
+  delayMicroseconds(50);
+
+  while (_sensors && !isTopLimitActive(_sensors)) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
       return false;
     }
-    digitalWrite(PIN_MOTOR_DIR, HIGH);
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(600);
+    delayMicroseconds(2500); // Slow precise re-approach (~10 mm/s)
   }
 
   _positionMM = 0.0f; // Zero home reference position
