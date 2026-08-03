@@ -522,9 +522,9 @@ export default function App() {
     }
   };
 
-  const settingNames = ["Slim Weight", "Std Weight", "Slim Dips", "Std Dips", "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit"];
-  const settingUnits = ["g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g"];
-  const [settingValues, setSettingValues] = useState<number[]>([1500, 2500, 15, 25, 10, 4, 60, 50, -50]);
+  const settingNames = ["Slim Weight", "Std Weight", "Slim Dips", "Std Dips", "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit", "Soft Limit", "Weight Dwell", "Soft Ramp", "Driver Mode", "Hybrid Speed"];
+  const settingUnits = ["g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g", "mm", "ms", "ms", "", "mm/s"];
+  const [settingValues, setSettingValues] = useState<number[]>([1500, 2500, 15, 25, 10, 4, 60, 50, -50, 500, 500, 50, 1, 30]);
   const [dipAborted, setDipAborted] = useState(false);
   const [finalDurationSecs, setFinalDurationSecs] = useState(134);
   const [activeIsSlim, setActiveIsSlim] = useState(true);
@@ -903,12 +903,12 @@ export default function App() {
                     {/* Sub Settings Pages (4, 5, 6) */}
                     {(page === 4 || page === 5 || page === 6) && !showNumpad && (
                       <div className="w-full h-full flex flex-col gap-1 p-1">
-                        {(page === 4 ? [0,1,2,3] : page === 5 ? [4,5,6,7] : [8]).map((idx) => (
-                          <div key={idx} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-neutral-800/40">
+                        {(page === 4 ? [0,1,2,3] : page === 5 ? [4,5,6,7] : [8,9,10,11]).map((idx) => (
+                          <div key={idx} className="flex items-center justify-between text-xs px-2 py-0.5 rounded bg-neutral-800/40">
                             <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>{settingNames[idx]}</span>
                             <button
                               onClick={() => { setActiveSettingIdx(idx); setNumpadVal(''); setShowNumpad(true); }}
-                              className="px-3 py-1 rounded font-bold text-xs text-white"
+                              className="px-2 py-0.5 rounded font-bold text-xs text-white"
                               style={{ backgroundColor: ts.outlineBg }}
                             >
                               {settingValues[idx]} {settingUnits[idx]}
@@ -918,7 +918,7 @@ export default function App() {
                         {page === 6 && (
                           <button
                             onClick={() => { setPage(8); setLastEvent('Opened Wi-Fi Portal'); }}
-                            className="mt-2 w-full py-2 rounded-lg font-bold text-xs"
+                            className="mt-1 w-full py-1 rounded-lg font-bold text-xs"
                             style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
                           >
                             RESET WI-FI PORTAL
