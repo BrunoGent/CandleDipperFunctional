@@ -578,8 +578,8 @@ export default function App() {
 
   const getPageTitle = (p: number) => {
     switch (p) {
-      case 0: return "Weight-Based";
-      case 1: return "Dips-Based";
+      case 0: return subState === 0 ? "Weight Dipping" : "Confirm Weight Dip";
+      case 1: return subState === 0 ? "Dips Dipping" : "Confirm Dips Dip";
       case 2: return "Manual Control";
       case 3: return "Settings Hub";
       case 8: return "Wi-Fi Portal";
@@ -756,30 +756,64 @@ export default function App() {
                         {subState === 0 ? (
                           <>
                             <button
-                              onClick={() => { setSubState(1); setActiveIsSlim(true); setActiveIsWeight(page === 0); setLastEvent('Selected SLIM profile'); }}
-                              className="flex-1 h-24 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center"
+                              onClick={() => {
+                                setSubState(1);
+                                setActiveIsSlim(true);
+                                setActiveIsWeight(page === 0);
+                                setLastEvent(`Selected SLIM (${page === 0 ? settingValues[0] + 'g' : settingValues[2] + ' dips'})`);
+                              }}
+                              className="flex-1 h-24 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex flex-col items-center justify-center gap-1"
                               style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
                             >
-                              SLIM
+                              <span className="text-sm">SLIM</span>
+                              <span className="text-[10px] opacity-80">
+                                ({page === 0 ? `${settingValues[0]} g` : `${settingValues[2]} dips`})
+                              </span>
                             </button>
                             <button
-                              onClick={() => { setSubState(2); setActiveIsSlim(false); setActiveIsWeight(page === 0); setLastEvent('Selected STANDARD profile'); }}
-                              className="flex-1 h-24 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center"
+                              onClick={() => {
+                                setSubState(2);
+                                setActiveIsSlim(false);
+                                setActiveIsWeight(page === 0);
+                                setLastEvent(`Selected STANDARD (${page === 0 ? settingValues[1] + 'g' : settingValues[3] + ' dips'})`);
+                              }}
+                              className="flex-1 h-24 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex flex-col items-center justify-center gap-1"
                               style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
                             >
-                              STANDARD
+                              <span className="text-sm">STANDARD</span>
+                              <span className="text-[10px] opacity-80">
+                                ({page === 0 ? `${settingValues[1]} g` : `${settingValues[3]} dips`})
+                              </span>
                             </button>
                           </>
                         ) : (
-                          <button
-                            onClick={() => { setPage(9); setDipAborted(false); setLastEvent('Started Dipping Process'); }}
-                            className="w-full h-24 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex items-center justify-center"
-                            style={{ backgroundColor: ts.activeBg, color: '#000000' }}
-                          >
-                            {subState === 1 
-                              ? (page === 0 ? 'CONFIRM SLIM (Wt)' : 'CONFIRM SLIM (Dips)')
-                              : (page === 0 ? 'CONFIRM STD (Wt)' : 'CONFIRM STD (Dips)')}
-                          </button>
+                          <div className="w-full h-full flex flex-col justify-between p-1">
+                            <div className="bg-neutral-800/80 p-2 rounded-lg text-[11px] flex flex-col gap-1 text-white border border-white/10">
+                              <div className="flex justify-between">
+                                <span className="opacity-70">Mode:</span>
+                                <span className="font-semibold">{activeIsWeight ? 'Weight' : 'Dips'}</span>
+                                <span className="opacity-70 ml-2">Profile:</span>
+                                <span className="font-semibold">{activeIsSlim ? 'Slim' : 'Standard'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="opacity-70">Target:</span>
+                                <span className="font-bold text-yellow-300">
+                                  {activeIsWeight
+                                    ? (activeIsSlim ? `${settingValues[0]} g` : `${settingValues[1]} g`)
+                                    : (activeIsSlim ? `${settingValues[2]} dips` : `${settingValues[3]} dips`)}
+                                </span>
+                                <span className="opacity-70">Est:</span>
+                                <span className="font-semibold">02:15</span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => { setPage(9); setDipAborted(false); setLastEvent('Started Dipping Process'); }}
+                              className="w-full py-2.5 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex items-center justify-center"
+                              style={{ backgroundColor: ts.activeBg, color: '#000000' }}
+                            >
+                              START DIP
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}

@@ -143,13 +143,13 @@ void MotorManager::stepMotor(bool directionUp, float speedMMps) {
     lastSensorCheck = millis();
     if (_sensors) {
       if (directionUp) {
-        if ((_sensors && _sensors->readRawTopLimit()) || _positionMM <= 0.0f) {
-          if (_sensors && _sensors->readRawTopLimit()) _positionMM = 0.0f; // Calibrate home
+        if (_sensors->readRawTopLimit()) {
+          _positionMM = 0.0f; // Calibrate home
           stopMotor();
           return;
         }
       } else {
-        if ((_sensors && _sensors->readRawCapSensor()) || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
+        if (_sensors->readRawCapSensor() || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
           stopMotor();
           return;
         }
@@ -254,6 +254,9 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   if (delayUs < 30) delayUs = 30;
 
   // Stage 1: Fast search towards limit switch
+  digitalWrite(PIN_MOTOR_DIR, HIGH);
+  delayMicroseconds(10);
+
   while (_sensors && !_sensors->readRawTopLimit()) {
     if (stopCheck && stopCheck()) {
       stopMotor();
@@ -261,7 +264,6 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
       return false;
     }
 
-    digitalWrite(PIN_MOTOR_DIR, HIGH);
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
@@ -274,9 +276,17 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     }
   }
 
-  // Stage 2: Back down 2mm slightly until switch opens
+  // Stop motor & pause before direction reversal to prevent inertia chatter
+  stopMotor();
+  delay(50);
+
+  // Stage 2: Gently back down until switch opens
   digitalWrite(PIN_MOTOR_DIR, LOW);
-  for (int i = 0; i < (int)(2.0f * STEPS_PER_MM); i++) {
+  delayMicroseconds(10);
+
+  int maxBackoffSteps = (int)(5.0f * STEPS_PER_MM); // up to 5mm backoff limit
+  int stepsBack = 0;
+  while (_sensors && _sensors->readRawTopLimit() && stepsBack < maxBackoffSteps) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
@@ -285,21 +295,35 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(250);
+    delayMicroseconds(400); // Gentle 12.5 mm/s backoff
+    stepsBack++;
   }
 
+  // Extra clearance step (1mm)
+  for (int i = 0; i < (int)(1.0f * STEPS_PER_MM); i++) {
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(400);
+  }
+
+  stopMotor();
+  delay(50);
+
   // Stage 3: Slowly re-approach home for precision zeroing
+  digitalWrite(PIN_MOTOR_DIR, HIGH);
+  delayMicroseconds(10);
+
   while (_sensors && !_sensors->readRawTopLimit()) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
       return false;
     }
-    digitalWrite(PIN_MOTOR_DIR, HIGH);
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(500);
+    delayMicroseconds(1000); // Slow precision approach (5 mm/s)
   }
 
   _positionMM = 0.0f; // Zero home reference position

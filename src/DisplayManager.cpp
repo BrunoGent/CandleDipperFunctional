@@ -75,10 +75,11 @@ void DisplayManager::setBrightness(int percent) {
 const char* DisplayManager::getPageTitle() const {
   switch (data.currentPage) {
     case PAGE_WEIGHT_DIP:
+      if (data.currentSubState == SUB_MAIN) return "Weight Dipping";
+      else return "Confirm Weight Dip";
     case PAGE_DIPS_DIP:
-      if (data.currentSubState == SUB_MAIN) return "Dipping Mode";
-      else if (data.currentSubState == SUB_SELECT_PROFILE) return "Select Profile";
-      else return "Confirm Dipping";
+      if (data.currentSubState == SUB_MAIN) return "Dips Dipping";
+      else return "Confirm Dips Dip";
     case PAGE_MANUAL:         return "Manual Control";
     case PAGE_SETTINGS_HUB:   return "Settings (1/2)";
     case PAGE_SETTINGS_HUB_2: return "Settings (2/2)";
@@ -219,34 +220,24 @@ void DisplayManager::drawPage1_2() {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
   
+  bool isWeightPage = (data.currentPage == PAGE_WEIGHT_DIP);
+  
   if (data.currentSubState == SUB_MAIN) {
       canvas.fillRoundRect(10, 65, 140, 105, 10, c_btn1);
       canvas.setTextColor(c_btnTxt, c_btn1);
       canvas.setTextDatum(middle_center);
-      canvas.drawString("WEIGHT", 80, 100);
-      canvas.drawString("CONTROL", 80, 130);
-
-      canvas.fillRoundRect(170, 65, 140, 105, 10, c_btn2);
-      canvas.setTextColor(c_btnTxt, c_btn2);
-      canvas.setTextDatum(middle_center);
-      canvas.drawString("DIPS", 240, 100);
-      canvas.drawString("CONTROL", 240, 130);
-  } else if (data.currentSubState == SUB_SELECT_PROFILE) {
-      canvas.fillRoundRect(10, 65, 140, 105, 10, c_btn1);
-      canvas.setTextColor(c_btnTxt, c_btn1);
-      canvas.setTextDatum(middle_center);
-      canvas.drawString("SLIM", 80, 100);
+      canvas.drawString("SLIM", 80, 95);
       char subSlim[32];
-      snprintf(subSlim, sizeof(subSlim), "(%s)", data.isActiveWeightBased ? (String(data.s_slimWt) + " g").c_str() : (String(data.s_slimDips) + " dips").c_str());
-      canvas.drawString(subSlim, 80, 130);
+      snprintf(subSlim, sizeof(subSlim), "(%s)", isWeightPage ? (String(data.s_slimWt) + " g").c_str() : (String(data.s_slimDips) + " dips").c_str());
+      canvas.drawString(subSlim, 80, 125);
 
       canvas.fillRoundRect(170, 65, 140, 105, 10, c_btn2);
       canvas.setTextColor(c_btnTxt, c_btn2);
       canvas.setTextDatum(middle_center);
-      canvas.drawString("STANDARD", 240, 100);
+      canvas.drawString("STANDARD", 240, 95);
       char subStd[32];
-      snprintf(subStd, sizeof(subStd), "(%s)", data.isActiveWeightBased ? (String(data.s_stdWt) + " g").c_str() : (String(data.s_stdDips) + " dips").c_str());
-      canvas.drawString(subStd, 240, 130);
+      snprintf(subStd, sizeof(subStd), "(%s)", isWeightPage ? (String(data.s_stdWt) + " g").c_str() : (String(data.s_stdDips) + " dips").c_str());
+      canvas.drawString(subStd, 240, 125);
   } else if (data.currentSubState == SUB_CONFIRM_OPTION) {
       canvas.fillRoundRect(10, 45, 300, 80, 8, c_outline);
       canvas.setTextColor(TFT_WHITE, c_outline);
@@ -873,24 +864,16 @@ UiEvent DisplayManager::updateTouch() {
         }
       }
       else if (data.currentPage == PAGE_WEIGHT_DIP || data.currentPage == PAGE_DIPS_DIP) {
+        bool isWeightPage = (data.currentPage == PAGE_WEIGHT_DIP);
         if (data.currentSubState == SUB_MAIN) {
           if (tx >= 10 && tx <= 150 && ty >= 65 && ty <= 170) { 
-            data.isActiveWeightBased = true;
-            data.currentSubState = SUB_SELECT_PROFILE; 
-            data.pageChanged = true; 
-          } 
-          else if (tx >= 170 && tx <= 310 && ty >= 65 && ty <= 170) { 
-            data.isActiveWeightBased = false;
-            data.currentSubState = SUB_SELECT_PROFILE; 
-            data.pageChanged = true; 
-          }
-        } else if (data.currentSubState == SUB_SELECT_PROFILE) {
-          if (tx >= 10 && tx <= 150 && ty >= 65 && ty <= 170) { 
+            data.isActiveWeightBased = isWeightPage;
             data.isActiveSlimProfile = true;
             data.currentSubState = SUB_CONFIRM_OPTION; 
             data.pageChanged = true; 
           } 
           else if (tx >= 170 && tx <= 310 && ty >= 65 && ty <= 170) { 
+            data.isActiveWeightBased = isWeightPage;
             data.isActiveSlimProfile = false;
             data.currentSubState = SUB_CONFIRM_OPTION; 
             data.pageChanged = true; 

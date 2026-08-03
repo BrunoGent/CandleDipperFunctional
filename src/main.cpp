@@ -28,11 +28,22 @@ float lastPosDisplayed = -999.0f;
 float lastWtDisplayed = -999.0f;
 
 // --- Helper Functions ---
+static unsigned long g_actionStartTime = 0;
+
+void markActionStarted() {
+  g_actionStartTime = millis();
+}
+
 bool checkManualStop() {
   M5.update();
   DisplayData& data = display.getData();
   data.currentPosition = motorMgr.getCurrentPositionMM();
   data.currentWeight = scaleMgr.getWeightGrams();
+
+  // Ignore touches for initial 400ms so button press that started action doesn't immediately abort it
+  if (millis() - g_actionStartTime < 400) {
+    return false;
+  }
 
   if (M5.Touch.getCount() > 0) {
     auto t = M5.Touch.getDetail();
@@ -545,6 +556,7 @@ void loop() {
   switch (event) {
     case UI_EVENT_MANUAL_HOME:
       Serial.println("Executing Homing Sequence...");
+      markActionStarted();
       data.isHomingActive = true;
       display.markPageChanged(true);
       display.renderCurrentPage();
@@ -557,6 +569,7 @@ void loop() {
 
     case UI_EVENT_MANUAL_DIP_BOT:
       Serial.println("Executing Dip Bot Sequence...");
+      markActionStarted();
       data.isDipBotActive = true;
       display.markPageChanged(true);
       display.renderCurrentPage();
