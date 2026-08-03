@@ -39,6 +39,7 @@ void MotorManager::begin(SensorManager* sensorMgr) {
 }
 
 void MotorManager::setTMCMode(TMCMode mode) {
+  if (_currentMode == mode) return; // Do not resend UART packets if driver is already in requested mode
   _currentMode = mode;
   // Send TMC2209 UART packet to set GCONF register (0x00)
   if (mode == MODE_STEALTHCHOP) {

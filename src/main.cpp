@@ -259,24 +259,56 @@ void processActiveDipping() {
   char pTxt[32];
 
   switch (currentDipPhase) {
-    case DIP_PHASE_LOWERING:
-      // Move DOWN at s_downSpeed
-      motorMgr.stepMotorBurst(false, (float)data.s_downSpeed, 40);
-      data.currentPosition = motorMgr.getCurrentPositionMM();
+    case DIP_PHASE_LOWERING: {
+      motorMgr.setTMCMode(MODE_STEALTHCHOP);
+      digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN direction
+      float speed = (float)data.s_downSpeed;
+      if (speed <= 0.0f) speed = 20.0f;
+      float stepsPerSec = speed * STEPS_PER_MM;
+      unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
+      if (delayUs < 20) delayUs = 20;
 
-      // Check if wax level capacitive sensor triggers
-      if (sensorMgr.isCapSensorTriggered()) {
-        motorMgr.stopMotor();
-        currentDipPhase = DIP_PHASE_HOLDING;
-        phaseStartTime = millis();
-        int holdSec = (data.currentDipCount == 1) ? data.s_dip1Time : data.s_subDipTime;
-        holdDurationMs = (unsigned long)holdSec * 1000;
+      unsigned long startTimeout = millis();
+      unsigned long lastUiUpdate = millis();
 
-        snprintf(pTxt, sizeof(pTxt), "Dip %d: Holding (%ds)", data.currentDipCount, holdSec);
-        data.currentPhaseText = String(pTxt);
-        display.markPageChanged(true);
+      while (sensorMgr.readAll(), !sensorMgr.isCapSensorTriggered()) {
+        if (checkManualStop()) {
+          motorMgr.stopMotor();
+          return;
+        }
+
+        digitalWrite(PIN_MOTOR_STEP, HIGH);
+        delayMicroseconds(3);
+        digitalWrite(PIN_MOTOR_STEP, LOW);
+
+        data.currentPosition += (1.0f / STEPS_PER_MM);
+        motorMgr.setCurrentPositionMM(data.currentPosition);
+
+        // Update UI and scale weight every 200ms without interrupting stepper timing
+        if (millis() - lastUiUpdate >= 200) {
+          lastUiUpdate = millis();
+          scaleMgr.update();
+          data.currentWeight = scaleMgr.getWeightGrams();
+          display.markPageChanged(true);
+          display.renderCurrentPage();
+        }
+
+        delayMicroseconds(delayUs);
+
+        if (millis() - startTimeout > 35000) break; // Timeout guard
       }
+
+      motorMgr.stopMotor();
+      currentDipPhase = DIP_PHASE_HOLDING;
+      phaseStartTime = millis();
+      int holdSec = (data.currentDipCount == 1) ? data.s_dip1Time : data.s_subDipTime;
+      holdDurationMs = (unsigned long)holdSec * 1000;
+
+      snprintf(pTxt, sizeof(pTxt), "Dip %d: Holding (%ds)", data.currentDipCount, holdSec);
+      data.currentPhaseText = String(pTxt);
+      display.markPageChanged(true);
       break;
+    }
 
     case DIP_PHASE_HOLDING:
       motorMgr.stopMotor();
@@ -298,52 +330,88 @@ void processActiveDipping() {
       }
       break;
 
-    case DIP_PHASE_RAISING:
-      // Move UP at s_upSpeed
-      motorMgr.stepMotorBurst(true, (float)data.s_upSpeed, 40);
-      data.currentPosition = motorMgr.getCurrentPositionMM();
+    case DIP_PHASE_RAISING: {
+      motorMgr.setTMCMode(MODE_STEALTHCHOP);
+      digitalWrite(PIN_MOTOR_DIR, HIGH); // UP direction
+      float speed = (float)data.s_upSpeed;
+      if (speed <= 0.0f) speed = 30.0f;
+      float stepsPerSec = speed * STEPS_PER_MM;
+      unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
+      if (delayUs < 20) delayUs = 20;
 
-      // Check if top limit switch hit or reached home position 0.0mm
-      if (sensorMgr.isTopLimitHit() || data.currentPosition <= 0.0f) {
-        motorMgr.stopMotor();
-        motorMgr.setCurrentPositionMM(0.0f);
-        data.currentPosition = 0.0f;
+      unsigned long startTimeout = millis();
+      unsigned long lastUiUpdate = millis();
 
-        // Check if dipping process finished
-        bool isSlim = data.isActiveSlimProfile;
-        bool isWeight = data.isActiveWeightBased;
-        int targetWeight = isSlim ? data.s_slimWt : data.s_stdWt;
-        int targetDips = isSlim ? data.s_slimDips : data.s_stdDips;
-
-        bool processFinished = false;
-        if (isWeight) {
-          if (data.currentWeight >= (float)targetWeight) {
-            processFinished = true;
-          }
-        } else {
-          if (data.currentDipCount >= targetDips) {
-            processFinished = true;
-          }
+      while (sensorMgr.readAll(), (!sensorMgr.isTopLimitHit() && data.currentPosition > 0.0f)) {
+        if (checkManualStop()) {
+          motorMgr.stopMotor();
+          return;
         }
 
-        if (processFinished) {
-          currentDipPhase = DIP_PHASE_IDLE;
-          int finalElapsedSec = (int)((millis() - data.dipStartTime) / 1000);
-          display.endDippingProcess(false, finalElapsedSec);
-          saveProcessHistoryToPrefs();
-          M5.Speaker.tone(1000, 300);
-          delay(100);
-          M5.Speaker.tone(1500, 500);
-        } else {
-          currentDipPhase = DIP_PHASE_COOLING;
-          phaseStartTime = millis();
-          holdDurationMs = (unsigned long)data.s_subDipTime * 1000;
-          snprintf(pTxt, sizeof(pTxt), "Dip %d: Cooling (%ds)", data.currentDipCount, data.s_subDipTime);
-          data.currentPhaseText = String(pTxt);
+        digitalWrite(PIN_MOTOR_STEP, HIGH);
+        delayMicroseconds(3);
+        digitalWrite(PIN_MOTOR_STEP, LOW);
+
+        data.currentPosition -= (1.0f / STEPS_PER_MM);
+        if (data.currentPosition < 0.0f) data.currentPosition = 0.0f;
+        motorMgr.setCurrentPositionMM(data.currentPosition);
+
+        // Update UI and scale weight every 200ms without interrupting stepper timing
+        if (millis() - lastUiUpdate >= 200) {
+          lastUiUpdate = millis();
+          scaleMgr.update();
+          data.currentWeight = scaleMgr.getWeightGrams();
           display.markPageChanged(true);
+          display.renderCurrentPage();
+        }
+
+        delayMicroseconds(delayUs);
+
+        if (millis() - startTimeout > 35000) break; // Timeout guard
+      }
+
+      if (sensorMgr.isTopLimitHit()) {
+        data.currentPosition = 0.0f;
+        motorMgr.setCurrentPositionMM(0.0f);
+      }
+
+      motorMgr.stopMotor();
+
+      // Check if dipping process finished
+      bool isSlim = data.isActiveSlimProfile;
+      bool isWeight = data.isActiveWeightBased;
+      int targetWeight = isSlim ? data.s_slimWt : data.s_stdWt;
+      int targetDips = isSlim ? data.s_slimDips : data.s_stdDips;
+
+      bool processFinished = false;
+      if (isWeight) {
+        if (data.currentWeight >= (float)targetWeight) {
+          processFinished = true;
+        }
+      } else {
+        if (data.currentDipCount >= targetDips) {
+          processFinished = true;
         }
       }
+
+      if (processFinished) {
+        currentDipPhase = DIP_PHASE_IDLE;
+        int finalElapsedSec = (int)((millis() - data.dipStartTime) / 1000);
+        display.endDippingProcess(false, finalElapsedSec);
+        saveProcessHistoryToPrefs();
+        M5.Speaker.tone(1000, 300);
+        delay(100);
+        M5.Speaker.tone(1500, 500);
+      } else {
+        currentDipPhase = DIP_PHASE_COOLING;
+        phaseStartTime = millis();
+        holdDurationMs = (unsigned long)data.s_subDipTime * 1000;
+        snprintf(pTxt, sizeof(pTxt), "Dip %d: Cooling (%ds)", data.currentDipCount, data.s_subDipTime);
+        data.currentPhaseText = String(pTxt);
+        display.markPageChanged(true);
+      }
       break;
+    }
 
     case DIP_PHASE_COOLING:
       motorMgr.stopMotor();
@@ -392,23 +460,7 @@ void loop() {
 
   // Live screen refresh on Manual Page when scale weight or position changes
   if (data.currentPage == PAGE_MANUAL) {
-    if (data.isUpPressed) {
-      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 30);
-      data.currentPosition = motorMgr.getCurrentPositionMM();
-      static unsigned long lastPosUpdate = 0;
-      if (millis() - lastPosUpdate > 200) {
-        lastPosUpdate = millis();
-        display.markPageChanged(true);
-      }
-    } else if (data.isDownPressed) {
-      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 30);
-      data.currentPosition = motorMgr.getCurrentPositionMM();
-      static unsigned long lastPosUpdate = 0;
-      if (millis() - lastPosUpdate > 200) {
-        lastPosUpdate = millis();
-        display.markPageChanged(true);
-      }
-    } else if (!data.isHomingActive && !data.isDipBotActive) {
+    if (!data.isHomingActive && !data.isDipBotActive) {
       motorMgr.stopMotor();
       static unsigned long lastScaleRefresh = 0;
       if (millis() - lastScaleRefresh >= 250) {

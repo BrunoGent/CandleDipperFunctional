@@ -521,22 +521,11 @@ void DisplayManager::endDippingProcess(bool aborted, int elapsedSeconds) {
 UiEvent DisplayManager::updateTouch() {
   UiEvent eventTriggered = UI_EVENT_NONE;
 
-  // Manual Page continuous button pressing check
   data.isUpPressed = false;
   data.isDownPressed = false;
 
   if (M5.Touch.getCount() > 0) {
     auto touch = M5.Touch.getDetail();
-    if (touch.isPressed() || touch.wasPressed()) {
-      if (data.currentPage == PAGE_MANUAL && !data.isHomingActive && !data.isDipBotActive) {
-        int tx = touch.x; int ty = touch.y;
-        if (tx >= 36 && tx <= 156 && ty >= 41 && ty <= 91) {
-          data.isUpPressed = true;
-        } else if (tx >= 36 && tx <= 156 && ty >= 149 && ty <= 199) {
-          data.isDownPressed = true;
-        }
-      }
-    }
 
     // Brightness bar slider adjustment
     if (data.currentPage == PAGE_SETTING_SCREEN && touch.isPressed() && !data.showNumpad) {

@@ -22,12 +22,9 @@ void ScaleManager::begin(Preferences* prefs) {
 }
 
 long ScaleManager::readRawBitbang() {
-  // Wait up to 15ms for DT line to drop LOW (data ready)
-  unsigned long start = millis();
-  while (digitalRead(PIN_HX711_DT) == HIGH) {
-    if (millis() - start > 15) {
-      return _rawReadout; // Return last known reading if sensor not ready or disconnected
-    }
+  // Check if DT line is HIGH (sensor busy / data not ready) - return immediately to avoid blocking stepper pulses
+  if (digitalRead(PIN_HX711_DT) == HIGH) {
+    return _rawReadout;
   }
 
   noInterrupts(); // Protect 24-bit bitbang from ESP32 task context switches
