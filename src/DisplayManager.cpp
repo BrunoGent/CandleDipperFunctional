@@ -1,17 +1,17 @@
 #include "DisplayManager.h"
 
 // Setting metadata arrays
-static const char* settingNames[15] = {
+static const char* settingNames[14] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
   "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed",
   "Col. Limit", "Soft Limit", "Weight Dwell", "Soft Ramp",
-  "Driver Mode", "Hybrid Speed", "Screensaver Time"
+  "Driver Mode", "Hybrid Speed"
 };
-static const char* settingUnits[15] = {
+static const char* settingUnits[14] = {
   "g", "g", "dips", "dips",
   "s", "s", "mm/s", "mm/s",
   "g", "mm", "ms", "ms",
-  "", "mm/s", "s"
+  "", "mm/s"
 };
 static const char* themeNames[3] = { "Original", "Bee Mine", "Dark Mode" };
 
@@ -74,8 +74,11 @@ void DisplayManager::setBrightness(int percent) {
 
 const char* DisplayManager::getPageTitle() const {
   switch (data.currentPage) {
-    case PAGE_WEIGHT_DIP:     return "Weight-Based";
-    case PAGE_DIPS_DIP:       return "Dips-Based";
+    case PAGE_WEIGHT_DIP:
+    case PAGE_DIPS_DIP:
+      if (data.currentSubState == SUB_MAIN) return "Dipping Mode";
+      else if (data.currentSubState == SUB_SELECT_PROFILE) return "Select Profile";
+      else return "Confirm Dipping";
     case PAGE_MANUAL:         return "Manual Control";
     case PAGE_SETTINGS_HUB:   return "Settings (1/2)";
     case PAGE_SETTINGS_HUB_2: return "Settings (2/2)";
@@ -105,7 +108,6 @@ int DisplayManager::getSettingValue(int index) const {
      case 11: return data.s_softRamp;
      case 12: return data.s_tmcMode;
      case 13: return data.s_tmcThreshold;
-     case 14: return data.s_autoDipTimer;
   }
   return 0;
 }
@@ -126,7 +128,6 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 11: data.s_softRamp = abs(val); break;
      case 12: data.s_tmcMode = (val < 0) ? 0 : (val % 3); break;
      case 13: data.s_tmcThreshold = abs(val); break;
-     case 14: data.s_autoDipTimer = abs(val); break;
   }
 }
 
@@ -207,22 +208,63 @@ void DisplayManager::drawBottomBanner() {
   } else if (data.currentSubState == SUB_MAIN) {
       char bannerText[32]; snprintf(bannerText, sizeof(bannerText), "< %s >", getPageTitle());
       canvas.drawString(bannerText, 160, startY + (bannerHeight / 2));
+  } else if (data.currentSubState == SUB_SELECT_PROFILE) {
+      canvas.drawString("< BACK TO MODES", 160, startY + (bannerHeight / 2));
   } else {
-      canvas.drawString("CANCEL", 160, startY + (bannerHeight / 2));
+      canvas.drawString("< BACK TO PROFILES", 160, startY + (bannerHeight / 2));
   }
 }
 
 void DisplayManager::drawPage1_2() {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
-  bool isWt = (data.currentPage == PAGE_WEIGHT_DIP);
+  
   if (data.currentSubState == SUB_MAIN) {
-      drawButton(10, 70, 140, 100, "SLIM", c_btn1, c_btnTxt);
-      drawButton(170, 70, 140, 100, "STANDARD", c_btn2, c_btnTxt);
-  } else if (data.currentSubState == SUB_CONFIRM_SLIM) {
-      drawButton(10, 70, 300, 100, isWt ? "CONFIRM SLIM (Wt)" : "CONFIRM SLIM (Dips)", c_active, TFT_BLACK);
-  } else if (data.currentSubState == SUB_CONFIRM_STD) {
-      drawButton(10, 70, 300, 100, isWt ? "CONFIRM STD (Wt)" : "CONFIRM STD (Dips)", c_active, TFT_BLACK);
+      drawButton(10, 65, 140, 105, "WEIGHT BASED", c_btn1, c_btnTxt);
+      drawButton(170, 65, 140, 105, "DIPS BASED", c_btn2, c_btnTxt);
+  } else if (data.currentSubState == SUB_SELECT_PROFILE) {
+      canvas.fillRoundRect(10, 65, 140, 105, 10, c_btn1);
+      canvas.setTextColor(c_btnTxt, c_btn1);
+      canvas.setTextDatum(middle_center);
+      canvas.drawString("SLIM", 80, 100);
+      char subSlim[32];
+      snprintf(subSlim, sizeof(subSlim), "(%s)", data.isActiveWeightBased ? (String(data.s_slimWt) + " g").c_str() : (String(data.s_slimDips) + " dips").c_str());
+      canvas.drawString(subSlim, 80, 130);
+
+      canvas.fillRoundRect(170, 65, 140, 105, 10, c_btn2);
+      canvas.setTextColor(c_btnTxt, c_btn2);
+      canvas.setTextDatum(middle_center);
+      canvas.drawString("STANDARD", 240, 100);
+      char subStd[32];
+      snprintf(subStd, sizeof(subStd), "(%s)", data.isActiveWeightBased ? (String(data.s_stdWt) + " g").c_str() : (String(data.s_stdDips) + " dips").c_str());
+      canvas.drawString(subStd, 240, 130);
+  } else if (data.currentSubState == SUB_CONFIRM_OPTION) {
+      canvas.fillRoundRect(10, 45, 300, 80, 8, c_outline);
+      canvas.setTextDatum(middle_left);
+      canvas.setTextColor(TFT_WHITE, c_outline);
+
+      char line1[64];
+      snprintf(line1, sizeof(line1), "Mode: %s  |  Profile: %s", 
+               data.isActiveWeightBased ? "Weight" : "Dips",
+               data.isActiveSlimProfile ? "Slim" : "Standard");
+      canvas.drawString(line1, 20, 65);
+
+      char line2[64];
+      if (data.isActiveWeightBased) {
+        snprintf(line2, sizeof(line2), "Target Weight: %d g", data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt);
+      } else {
+        snprintf(line2, sizeof(line2), "Target Dips: %d dips", data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips);
+      }
+      canvas.drawString(line2, 20, 95);
+
+      int estSec = getAverageTime(data.isActiveWeightBased, data.isActiveSlimProfile);
+      if (estSec <= 0) estSec = data.isActiveWeightBased ? (data.isActiveSlimProfile ? 180 : 300) : (data.isActiveSlimProfile ? 120 : 200);
+      char estStr[32];
+      formatTime(estSec, estStr, sizeof(estStr));
+      canvas.setTextDatum(middle_right);
+      canvas.drawString(estStr, 290, 95);
+
+      drawButton(10, 135, 300, 55, "START DIP", c_active, TFT_BLACK);
   }
 }
 
@@ -350,39 +392,28 @@ void DisplayManager::drawScreenDashboard() {
   drawTopBanner(); drawBottomBanner();
   
   // Row 0: Brightness
-  int y0 = 45;
+  int y0 = 55;
   canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Brightness", 10, y0 + 15);
+  canvas.drawString("Brightness", 10, y0 + 20);
   
-  canvas.fillRoundRect(160, y0, 150, 32, 5, c_outline);
+  canvas.fillRoundRect(160, y0, 150, 40, 5, c_outline);
   int fillWidth = map(data.s_brightness, 1, 99, 10, 150);
-  canvas.fillRoundRect(160, y0, fillWidth, 32, 5, c_active);
+  canvas.fillRoundRect(160, y0, fillWidth, 40, 5, c_active);
   String bStr = String(data.s_brightness) + "%";
   canvas.setTextDatum(middle_center);
   canvas.setTextColor(TFT_WHITE, c_active);
-  canvas.drawString(bStr.c_str(), 235, y0 + 16);
+  canvas.drawString(bStr.c_str(), 235, y0 + 20);
 
   // Row 1: Color Theme
-  int y1 = 83;
+  int y1 = 120;
   canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Color Theme", 10, y1 + 15);
-  canvas.fillRoundRect(160, y1, 150, 32, 5, c_btn1);
+  canvas.drawString("Color Theme", 10, y1 + 20);
+  canvas.fillRoundRect(160, y1, 150, 40, 5, c_btn1);
   canvas.setTextDatum(middle_center);
   canvas.setTextColor(c_btnTxt, c_btn1);
-  canvas.drawString(themeNames[data.s_theme], 235, y1 + 16);
-
-  // Row 2: Screensaver Time
-  int y2 = 121;
-  canvas.setTextDatum(middle_left);
-  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Screensaver", 10, y2 + 15);
-  canvas.fillRoundRect(160, y2, 150, 32, 5, c_outline);
-  canvas.setTextDatum(middle_center);
-  canvas.setTextColor(TFT_WHITE, c_outline);
-  String timerStr = (data.s_autoDipTimer == 0) ? "Disabled" : (String(data.s_autoDipTimer) + " s");
-  canvas.drawString(timerStr.c_str(), 235, y2 + 16);
+  canvas.drawString(themeNames[data.s_theme], 235, y1 + 20);
 }
 
 void DisplayManager::drawWifiPortalPage() {
@@ -481,9 +512,9 @@ void DisplayManager::drawActiveDipPage() {
   char timeStr[64]; snprintf(timeStr, sizeof(timeStr), "Time: %s / %s (est)", elapsedStr, estStr);
   char targetStr[64];
   if (data.isActiveWeightBased) {
-    snprintf(targetStr, sizeof(targetStr), "Weight: %dg / %dg", (int)data.currentWeight, (data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt));
+    snprintf(targetStr, sizeof(targetStr), "Weight: %dg / %dg  (Jig: %.1fg)", (int)data.currentWeight, (data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt), data.initialJigWeight);
   } else {
-    snprintf(targetStr, sizeof(targetStr), "Dips: %d / %d", data.currentDipCount, (data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips));
+    snprintf(targetStr, sizeof(targetStr), "Dips: %d / %d  (Jig: %.1fg)", data.currentDipCount, (data.isActiveSlimProfile ? data.s_slimDips : data.s_stdDips), data.initialJigWeight);
   }
 
   canvas.setTextDatum(middle_center);
@@ -635,9 +666,6 @@ void DisplayManager::endDippingProcess(bool aborted, int elapsedSeconds) {
 UiEvent DisplayManager::updateTouch() {
   UiEvent eventTriggered = UI_EVENT_NONE;
 
-  data.isUpPressed = false;
-  data.isDownPressed = false;
-
   if (M5.Touch.getCount() > 0) {
     auto touch = M5.Touch.getDetail();
 
@@ -702,14 +730,28 @@ UiEvent DisplayManager::updateTouch() {
         data.pageChanged = true;
       }
       else if (ty > bottomStartY && !data.showNumpad) {
-        if (data.currentSubState != SUB_MAIN) { 
-          data.currentSubState = SUB_MAIN; 
-          data.pageChanged = true; 
-        } 
-        else {
-          if (tx < 160) data.currentPage = static_cast<AppState>((data.currentPage + 3) % 4);
-          else data.currentPage = static_cast<AppState>((data.currentPage + 1) % 4);
-          data.pageChanged = true;
+        if (data.currentPage == PAGE_WEIGHT_DIP || data.currentPage == PAGE_DIPS_DIP) {
+          if (data.currentSubState == SUB_CONFIRM_OPTION) {
+            data.currentSubState = SUB_SELECT_PROFILE;
+            data.pageChanged = true;
+          } else if (data.currentSubState == SUB_SELECT_PROFILE) {
+            data.currentSubState = SUB_MAIN;
+            data.pageChanged = true;
+          } else {
+            if (tx < 160) data.currentPage = static_cast<AppState>((data.currentPage + 3) % 4);
+            else data.currentPage = static_cast<AppState>((data.currentPage + 1) % 4);
+            data.pageChanged = true;
+          }
+        } else {
+          if (data.currentSubState != SUB_MAIN) { 
+            data.currentSubState = SUB_MAIN; 
+            data.pageChanged = true; 
+          } 
+          else {
+            if (tx < 160) data.currentPage = static_cast<AppState>((data.currentPage + 3) % 4);
+            else data.currentPage = static_cast<AppState>((data.currentPage + 1) % 4);
+            data.pageChanged = true;
+          }
         }
       } 
       else if (data.showNumpad) {
@@ -790,7 +832,7 @@ UiEvent DisplayManager::updateTouch() {
             else if (data.currentPage == PAGE_SETTING_MOTION) data.activeSetting = 4 + row;
             else if (data.currentPage == PAGE_SETTING_SENSOR) data.activeSetting = 8 + row;
             
-            if (data.activeSetting <= 14) {
+            if (data.activeSetting <= 13) {
               data.numpadStr = ""; 
               data.showNumpad = true; 
               data.pageChanged = true;
@@ -800,38 +842,46 @@ UiEvent DisplayManager::updateTouch() {
       }
       else if (data.currentPage == PAGE_SETTING_SCREEN) {
         if (tx >= 160 && tx <= 310) {
-          if (ty >= 45 && ty <= 77) { // Brightness adjustment
+          if (ty >= 50 && ty <= 100) { // Brightness adjustment
             int newB = data.s_brightness + 25;
             if (newB > 100) newB = 25;
             setBrightness(newB);
             data.pageChanged = true;
             eventTriggered = UI_EVENT_SETTING_UPDATED;
-          } else if (ty >= 83 && ty <= 115) { // Theme cycle
+          } else if (ty >= 115 && ty <= 165) { // Theme cycle
             int nextTheme = (data.s_theme + 1) % 3;
             applyTheme(nextTheme);
             data.pageChanged = true;
             eventTriggered = UI_EVENT_THEME_CHANGED;
-          } else if (ty >= 121 && ty <= 153) { // Auto Dip Timer Numpad
-            data.activeSetting = 14;
-            data.numpadStr = "";
-            data.showNumpad = true;
-            data.pageChanged = true;
           }
         }
       }
       else if (data.currentPage == PAGE_WEIGHT_DIP || data.currentPage == PAGE_DIPS_DIP) {
         if (data.currentSubState == SUB_MAIN) {
-          if (tx >= 10 && tx <= 150 && ty >= 70 && ty <= 170) { 
-            data.currentSubState = SUB_CONFIRM_SLIM; 
+          if (tx >= 10 && tx <= 150 && ty >= 65 && ty <= 170) { 
+            data.isActiveWeightBased = true;
+            data.currentSubState = SUB_SELECT_PROFILE; 
             data.pageChanged = true; 
           } 
-          else if (tx >= 170 && tx <= 310 && ty >= 70 && ty <= 170) { 
-            data.currentSubState = SUB_CONFIRM_STD; 
+          else if (tx >= 170 && tx <= 310 && ty >= 65 && ty <= 170) { 
+            data.isActiveWeightBased = false;
+            data.currentSubState = SUB_SELECT_PROFILE; 
             data.pageChanged = true; 
           }
-        } else {
-          if (tx >= 10 && tx <= 310 && ty >= 70 && ty <= 170) {
-            startDippingProcess((data.currentPage == PAGE_WEIGHT_DIP), (data.currentSubState == SUB_CONFIRM_SLIM));
+        } else if (data.currentSubState == SUB_SELECT_PROFILE) {
+          if (tx >= 10 && tx <= 150 && ty >= 65 && ty <= 170) { 
+            data.isActiveSlimProfile = true;
+            data.currentSubState = SUB_CONFIRM_OPTION; 
+            data.pageChanged = true; 
+          } 
+          else if (tx >= 170 && tx <= 310 && ty >= 65 && ty <= 170) { 
+            data.isActiveSlimProfile = false;
+            data.currentSubState = SUB_CONFIRM_OPTION; 
+            data.pageChanged = true; 
+          }
+        } else if (data.currentSubState == SUB_CONFIRM_OPTION) {
+          if (tx >= 10 && tx <= 310 && ty >= 135 && ty <= 190) {
+            startDippingProcess(data.isActiveWeightBased, data.isActiveSlimProfile);
             eventTriggered = UI_EVENT_START_DIP;
           }
         }
@@ -839,18 +889,33 @@ UiEvent DisplayManager::updateTouch() {
       else if (data.currentPage == PAGE_MANUAL) {
         if (data.justStoppedByTouch) {
           data.justStoppedByTouch = false;
+          data.isUpPressed = false;
+          data.isDownPressed = false;
           data.pageChanged = true;
           return UI_EVENT_NONE;
         }
-        if (tx >= 197 && tx <= 315 && ty >= 41 && ty <= 87) { 
+        if (tx >= 36 && tx <= 156 && ty >= 41 && ty <= 91) {
+          data.isUpPressed = !data.isUpPressed;
+          if (data.isUpPressed) data.isDownPressed = false;
+          data.pageChanged = true;
+        }
+        else if (tx >= 36 && tx <= 156 && ty >= 149 && ty <= 199) {
+          data.isDownPressed = !data.isDownPressed;
+          if (data.isDownPressed) data.isUpPressed = false;
+          data.pageChanged = true;
+        }
+        else if (tx >= 197 && tx <= 315 && ty >= 41 && ty <= 87) { 
+          data.isUpPressed = false; data.isDownPressed = false;
           data.pageChanged = true; 
           eventTriggered = data.isHomingActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_MANUAL_HOME;
         }
         else if (tx >= 197 && tx <= 315 && ty >= 97 && ty <= 143) { 
+          data.isUpPressed = false; data.isDownPressed = false;
           data.pageChanged = true; 
           eventTriggered = data.isDipBotActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_MANUAL_DIP_BOT;
         }
         else if (tx >= 197 && tx <= 315 && ty >= 153 && ty <= 199) { 
+          data.isUpPressed = false; data.isDownPressed = false;
           data.currentWeight = 0.0; 
           data.pageChanged = true; 
           eventTriggered = UI_EVENT_MANUAL_TARE;
@@ -864,6 +929,11 @@ UiEvent DisplayManager::updateTouch() {
           data.manualSpeed += 5; 
           if (data.manualSpeed > 100) data.manualSpeed = 100; 
           data.pageChanged = true; 
+        }
+        else {
+          data.isUpPressed = false;
+          data.isDownPressed = false;
+          data.pageChanged = true;
         }
       }
     }

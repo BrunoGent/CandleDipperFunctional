@@ -22,9 +22,9 @@ enum AppState {
 };
 
 enum SubState {
-  SUB_MAIN,
-  SUB_CONFIRM_SLIM,
-  SUB_CONFIRM_STD
+  SUB_MAIN = 0,           // Screen 1: Mode Select (Weight vs Dips)
+  SUB_SELECT_PROFILE = 1, // Screen 2: Profile Select (Slim vs Standard)
+  SUB_CONFIRM_OPTION = 2  // Screen 3: Details & START DIP
 };
 
 // --- Action Events Triggered by UI Touch Interactions ---
@@ -82,7 +82,6 @@ struct DisplayData {
   bool isMotorEnabled = true; // Motor power enable/disable toggle
   int s_brightness = 50;  // 1 to 99%
   int s_theme = 1;        // 0: Original, 1: Bee Mine, 2: Dark Mode
-  int s_autoDipTimer = 0; // Auto dip screen return timer in seconds (0 = disabled)
 
   // Numpad Editor State
   bool showNumpad = false;
@@ -98,6 +97,7 @@ struct DisplayData {
   bool isActiveSlimProfile = true;
   bool dipWasAborted = false;
   int currentDipCount = 0;
+  float initialJigWeight = 0.0f;
   String currentPhaseText = "Starting...";
 
   // Rotating 5-entry history for 4 process types:

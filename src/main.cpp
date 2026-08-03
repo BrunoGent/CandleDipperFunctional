@@ -40,6 +40,9 @@ bool checkManualStop() {
       data.justStoppedByTouch = true;
       data.isHomingActive = false;
       data.isDipBotActive = false;
+      if (data.currentPage == PAGE_ACTIVE_DIP) {
+        data.currentPage = PAGE_STOP_CONFIRM;
+      }
       motorMgr.stopMotor();
       display.markPageChanged(true);
       return true; // Screen touched -> Stop motion immediately
@@ -150,7 +153,6 @@ void setup() {
   data.s_softRamp   = prefs.getInt("s11", 50);
   data.s_tmcMode    = prefs.getInt("s12", 1);  // Default: SpreadCycle (1)
   data.s_tmcThreshold = prefs.getInt("s13", 30);
-  data.s_autoDipTimer = prefs.getInt("s14", 0);
   data.s_brightness = prefs.getInt("bright", 50);
   data.s_theme      = prefs.getInt("theme", 1);
   data.wifiSSID     = prefs.getString("wssid", "Trooli_BB00");
@@ -223,6 +225,7 @@ void saveProcessHistoryToPrefs() {
 
 enum DipPhase {
   DIP_PHASE_IDLE = 0,
+  DIP_PHASE_PRESTART_COUNTDOWN,
   DIP_PHASE_LOWERING,
   DIP_PHASE_HOLDING,
   DIP_PHASE_RAISING,
@@ -262,9 +265,33 @@ void processActiveDipping() {
     display.markPageChanged(true);
   }
 
-  char pTxt[32];
+  char pTxt[64];
 
   switch (currentDipPhase) {
+    case DIP_PHASE_PRESTART_COUNTDOWN: {
+      motorMgr.stopMotor();
+      unsigned long elapsed = millis() - phaseStartTime;
+      int remSec = 3 - (int)(elapsed / 1000);
+
+      static int lastRemSec = -1;
+      if (remSec != lastRemSec) {
+        lastRemSec = remSec;
+        if (remSec > 0) {
+          snprintf(pTxt, sizeof(pTxt), "Jig Wt: %.1fg | Starting in %ds...", data.initialJigWeight, remSec);
+          data.currentPhaseText = String(pTxt);
+          display.markPageChanged(true);
+          M5.Speaker.tone(1000, 150);
+        } else {
+          M5.Speaker.tone(1800, 300);
+          currentDipPhase = DIP_PHASE_LOWERING;
+          data.currentPhaseText = "Dip 1: Lowering...";
+          display.markPageChanged(true);
+          lastRemSec = -1;
+        }
+      }
+      break;
+    }
+
     case DIP_PHASE_LOWERING: {
       float speed = (float)data.s_downSpeed;
       if (speed <= 0.0f) speed = 20.0f;
@@ -520,31 +547,7 @@ void loop() {
   }
 
   // 1. Process Touch Events & User Interactions
-  static unsigned long lastTouchTime = millis();
-  if (M5.Touch.getCount() > 0) {
-    lastTouchTime = millis();
-  }
-
   UiEvent event = display.updateTouch();
-
-  if (event != UI_EVENT_NONE) {
-    lastTouchTime = millis();
-  }
-
-  // Screensaver return timer (if enabled and idle)
-  if (data.s_autoDipTimer > 0 && 
-      data.currentPage != PAGE_WEIGHT_DIP && 
-      data.currentPage != PAGE_ACTIVE_DIP && 
-      data.currentPage != PAGE_STOP_CONFIRM && 
-      data.currentPage != PAGE_WIFI_PORTAL) {
-    if (millis() - lastTouchTime > (unsigned long)data.s_autoDipTimer * 1000) {
-      data.currentPage = PAGE_WEIGHT_DIP;
-      data.showNumpad = false;
-      data.currentSubState = SUB_MAIN;
-      data.pageChanged = true;
-      lastTouchTime = millis();
-    }
-  }
 
   // 2. Handle Event Callbacks
   switch (event) {
@@ -618,8 +621,25 @@ void loop() {
       break;
 
     case UI_EVENT_START_DIP:
-      Serial.println("UI Event: Starting dipping process...");
-      currentDipPhase = DIP_PHASE_IDLE;
+      Serial.println("UI Event: Starting dipping process with zero tare & 3-2-1 countdown...");
+      motorMgr.stopMotor();
+      scaleMgr.tare(10);
+      scaleMgr.update();
+      data.initialJigWeight = scaleMgr.getWeightGrams();
+      data.currentWeight = 0.0f;
+      data.currentDipCount = 1;
+      data.dipStartTime = millis();
+      phaseStartTime = millis();
+      currentDipPhase = DIP_PHASE_PRESTART_COUNTDOWN;
+      
+      {
+        char pTxt[64];
+        snprintf(pTxt, sizeof(pTxt), "Jig Wt: %.1fg | Starting in 3...", data.initialJigWeight);
+        data.currentPhaseText = String(pTxt);
+      }
+      data.currentPage = PAGE_ACTIVE_DIP;
+      display.markPageChanged(true);
+      M5.Speaker.tone(1000, 150);
       saveProcessHistoryToPrefs();
       break;
 
