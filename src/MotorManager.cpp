@@ -83,12 +83,12 @@ static uint8_t calcTMC2209CRC(const uint8_t* data, uint8_t len) {
   for (uint8_t i = 0; i < len; i++) {
     uint8_t currentByte = data[i];
     for (uint8_t j = 0; j < 8; j++) {
-      if ((crc ^ currentByte) & 0x01) {
-        crc = (crc >> 1) ^ 0x8C;
+      if ((crc >> 7) ^ (currentByte >> 7)) {
+        crc = (crc << 1) ^ 0x07;
       } else {
-        crc = (crc >> 1);
+        crc = (crc << 1);
       }
-      currentByte >>= 1;
+      currentByte <<= 1;
     }
   }
   return crc;
@@ -105,30 +105,12 @@ void MotorManager::sendUARTCommand(uint8_t reg, uint32_t val) {
   msg[6] = val & 0xFF;
   msg[7] = calcTMC2209CRC(msg, 7);
 
-  // Method 1: Hardware Serial2 on ESP32
+  // Hardware Serial2 write over single-wire UART (PIN_MOTOR_UART)
   Serial2.begin(115200, SERIAL_8N1, -1, PIN_MOTOR_UART);
-  delayMicroseconds(200);
+  delayMicroseconds(300);
   Serial2.write(msg, 8);
   Serial2.flush();
-  Serial2.end();
-
-  // Method 2: Software Bit-Bang UART as backup for single-wire PIN 18
-  pinMode(PIN_MOTOR_UART, OUTPUT);
-  digitalWrite(PIN_MOTOR_UART, HIGH);
-  delayMicroseconds(100);
-
-  for (int b = 0; b < 8; b++) {
-    uint8_t byteVal = msg[b];
-    digitalWrite(PIN_MOTOR_UART, LOW); // Start bit
-    delayMicroseconds(8);
-    for (int i = 0; i < 8; i++) {
-      digitalWrite(PIN_MOTOR_UART, (byteVal & (1 << i)) ? HIGH : LOW);
-      delayMicroseconds(8);
-    }
-    digitalWrite(PIN_MOTOR_UART, HIGH); // Stop bit
-    delayMicroseconds(9);
-  }
-  delayMicroseconds(100);
+  delayMicroseconds(500);
 }
 
 void MotorManager::stopMotor() {
@@ -260,13 +242,41 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   } else {
     setTMCMode(MODE_SPREADCYCLE);
   }
+
+  // Pre-check: If limit switch is ALREADY pressed (e.g. carriage at top or manual press):
+  // Drive DOWN gently until switch releases
+  if (_sensors && isTopLimitActive(_sensors)) {
+    digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
+    delayMicroseconds(50);
+    int maxClearSteps = (int)(10.0f * STEPS_PER_MM);
+    for (int i = 0; i < maxClearSteps; i++) {
+      if (stopCheck && stopCheck()) {
+        stopMotor();
+        setTMCMode(MODE_STEALTHCHOP);
+        return false;
+      }
+      digitalWrite(PIN_MOTOR_STEP, HIGH);
+      delayMicroseconds(3);
+      digitalWrite(PIN_MOTOR_STEP, LOW);
+      delayMicroseconds(1000); // Gentle ~25 mm/s
+
+      if (!isTopLimitActive(_sensors) && i >= (int)(0.5f * STEPS_PER_MM)) {
+        break;
+      }
+    }
+    stopMotor();
+    delay(100);
+  }
   
   unsigned long startTimeout = millis();
   float stepsPerSec = speedMMps * STEPS_PER_MM;
   unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
   if (delayUs < 30) delayUs = 30;
 
-  // Stage 1: Fast search towards limit switch
+  // Stage 1: Fast search UP towards limit switch
+  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
+  delayMicroseconds(50);
+
   while (_sensors && !isTopLimitActive(_sensors)) {
     if (stopCheck && stopCheck()) {
       stopMotor();
@@ -274,7 +284,6 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
       return false;
     }
 
-    digitalWrite(PIN_MOTOR_DIR, HIGH);
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
@@ -291,11 +300,11 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   stopMotor();
   delay(100);
 
-  // Stage 2: Back down 3mm gently until switch opens
-  digitalWrite(PIN_MOTOR_DIR, LOW);
+  // Stage 2: Back down 2.5mm gently until switch opens
+  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
   delayMicroseconds(50); // DIR setup time
 
-  int backoffSteps = (int)(3.0f * STEPS_PER_MM);
+  int backoffSteps = (int)(2.5f * STEPS_PER_MM);
   for (int i = 0; i < backoffSteps; i++) {
     if (stopCheck && stopCheck()) {
       stopMotor();
@@ -305,9 +314,9 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(1000); // Smooth, gentle backoff speed (~25 mm/s)
+    delayMicroseconds(1200); // Smooth backoff speed (~20 mm/s)
 
-    if (!isTopLimitActive(_sensors) && i >= (int)(1.0f * STEPS_PER_MM)) {
+    if (!isTopLimitActive(_sensors) && i >= (int)(0.8f * STEPS_PER_MM)) {
       break;
     }
   }
@@ -316,8 +325,8 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   stopMotor();
   delay(100);
 
-  // Stage 3: Slowly re-approach home for precision zeroing
-  digitalWrite(PIN_MOTOR_DIR, HIGH);
+  // Stage 3: Slowly re-approach home UP for precision zeroing
+  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
   delayMicroseconds(50);
 
   while (_sensors && !isTopLimitActive(_sensors)) {
