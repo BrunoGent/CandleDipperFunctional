@@ -30,10 +30,20 @@ float lastWtDisplayed = -999.0f;
 // --- Helper Functions ---
 bool checkManualStop() {
   M5.update();
+  DisplayData& data = display.getData();
+  data.currentPosition = motorMgr.getCurrentPositionMM();
+  data.currentWeight = scaleMgr.getWeightGrams();
+
+  static unsigned long lastPosRefresh = 0;
+  if (millis() - lastPosRefresh >= 100) {
+    lastPosRefresh = millis();
+    display.markPageChanged(true);
+    display.renderCurrentPage();
+  }
+
   if (M5.Touch.getCount() > 0) {
     auto t = M5.Touch.getDetail();
     if (t.wasPressed() || t.isPressed()) {
-      DisplayData& data = display.getData();
       data.justStoppedByTouch = true;
       data.isHomingActive = false;
       data.isDipBotActive = false;
@@ -211,6 +221,162 @@ void saveProcessHistoryToPrefs() {
   }
 }
 
+enum DipPhase {
+  DIP_PHASE_IDLE = 0,
+  DIP_PHASE_LOWERING,
+  DIP_PHASE_HOLDING,
+  DIP_PHASE_RAISING,
+  DIP_PHASE_COOLING
+};
+
+static DipPhase currentDipPhase = DIP_PHASE_IDLE;
+static unsigned long phaseStartTime = 0;
+static unsigned long holdDurationMs = 0;
+
+void processActiveDipping() {
+  DisplayData& data = display.getData();
+
+  // If page changed away from active dipping or stop confirm, reset phase
+  if (data.currentPage != PAGE_ACTIVE_DIP && data.currentPage != PAGE_STOP_CONFIRM) {
+    if (currentDipPhase != DIP_PHASE_IDLE) {
+      currentDipPhase = DIP_PHASE_IDLE;
+      motorMgr.stopMotor();
+    }
+    return;
+  }
+
+  // If on confirmation modal, pause motor motion
+  if (data.currentPage == PAGE_STOP_CONFIRM) {
+    motorMgr.stopMotor();
+    return;
+  }
+
+  // Initialize active dipping phase
+  if (currentDipPhase == DIP_PHASE_IDLE) {
+    currentDipPhase = DIP_PHASE_LOWERING;
+    data.currentDipCount = 1;
+    data.dipStartTime = millis();
+    char pTxt[32];
+    snprintf(pTxt, sizeof(pTxt), "Dip 1: Lowering...");
+    data.currentPhaseText = String(pTxt);
+    display.markPageChanged(true);
+  }
+
+  char pTxt[32];
+
+  switch (currentDipPhase) {
+    case DIP_PHASE_LOWERING:
+      // Move DOWN at s_downSpeed
+      motorMgr.stepMotorBurst(false, (float)data.s_downSpeed, 15);
+      data.currentPosition = motorMgr.getCurrentPositionMM();
+
+      // Check if wax level capacitive sensor triggers
+      if (sensorMgr.isCapSensorTriggered()) {
+        motorMgr.stopMotor();
+        currentDipPhase = DIP_PHASE_HOLDING;
+        phaseStartTime = millis();
+        int holdSec = (data.currentDipCount == 1) ? data.s_dip1Time : data.s_subDipTime;
+        holdDurationMs = (unsigned long)holdSec * 1000;
+
+        snprintf(pTxt, sizeof(pTxt), "Dip %d: Holding (%ds)", data.currentDipCount, holdSec);
+        data.currentPhaseText = String(pTxt);
+        display.markPageChanged(true);
+      }
+      break;
+
+    case DIP_PHASE_HOLDING:
+      motorMgr.stopMotor();
+      {
+        unsigned long elapsed = millis() - phaseStartTime;
+        if (elapsed >= holdDurationMs) {
+          currentDipPhase = DIP_PHASE_RAISING;
+          snprintf(pTxt, sizeof(pTxt), "Dip %d: Raising...", data.currentDipCount);
+          data.currentPhaseText = String(pTxt);
+          display.markPageChanged(true);
+        } else {
+          int remSec = (int)((holdDurationMs - elapsed + 999) / 1000);
+          snprintf(pTxt, sizeof(pTxt), "Dip %d: Holding (%ds)", data.currentDipCount, remSec);
+          if (data.currentPhaseText != String(pTxt)) {
+            data.currentPhaseText = String(pTxt);
+            display.markPageChanged(true);
+          }
+        }
+      }
+      break;
+
+    case DIP_PHASE_RAISING:
+      // Move UP at s_upSpeed
+      motorMgr.stepMotorBurst(true, (float)data.s_upSpeed, 15);
+      data.currentPosition = motorMgr.getCurrentPositionMM();
+
+      // Check if top limit switch hit or reached home position 0.0mm
+      if (sensorMgr.isTopLimitHit() || data.currentPosition <= 0.0f) {
+        motorMgr.stopMotor();
+        motorMgr.setCurrentPositionMM(0.0f);
+        data.currentPosition = 0.0f;
+
+        // Check if dipping process finished
+        bool isSlim = data.isActiveSlimProfile;
+        bool isWeight = data.isActiveWeightBased;
+        int targetWeight = isSlim ? data.s_slimWt : data.s_stdWt;
+        int targetDips = isSlim ? data.s_slimDips : data.s_stdDips;
+
+        bool processFinished = false;
+        if (isWeight) {
+          if (data.currentWeight >= (float)targetWeight) {
+            processFinished = true;
+          }
+        } else {
+          if (data.currentDipCount >= targetDips) {
+            processFinished = true;
+          }
+        }
+
+        if (processFinished) {
+          currentDipPhase = DIP_PHASE_IDLE;
+          int finalElapsedSec = (int)((millis() - data.dipStartTime) / 1000);
+          display.endDippingProcess(false, finalElapsedSec);
+          saveProcessHistoryToPrefs();
+          M5.Speaker.tone(1000, 300);
+          delay(100);
+          M5.Speaker.tone(1500, 500);
+        } else {
+          currentDipPhase = DIP_PHASE_COOLING;
+          phaseStartTime = millis();
+          holdDurationMs = (unsigned long)data.s_subDipTime * 1000;
+          snprintf(pTxt, sizeof(pTxt), "Dip %d: Cooling (%ds)", data.currentDipCount, data.s_subDipTime);
+          data.currentPhaseText = String(pTxt);
+          display.markPageChanged(true);
+        }
+      }
+      break;
+
+    case DIP_PHASE_COOLING:
+      motorMgr.stopMotor();
+      {
+        unsigned long elapsed = millis() - phaseStartTime;
+        if (elapsed >= holdDurationMs) {
+          data.currentDipCount++;
+          currentDipPhase = DIP_PHASE_LOWERING;
+          snprintf(pTxt, sizeof(pTxt), "Dip %d: Lowering...", data.currentDipCount);
+          data.currentPhaseText = String(pTxt);
+          display.markPageChanged(true);
+        } else {
+          int remSec = (int)((holdDurationMs - elapsed + 999) / 1000);
+          snprintf(pTxt, sizeof(pTxt), "Dip %d: Cooling (%ds)", data.currentDipCount, remSec);
+          if (data.currentPhaseText != String(pTxt)) {
+            data.currentPhaseText = String(pTxt);
+            display.markPageChanged(true);
+          }
+        }
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
 void loop() {
   M5.update();
   DisplayData& data = display.getData();
@@ -241,6 +407,16 @@ void loop() {
         lastPosDisplayed = data.currentPosition;
         display.markPageChanged(true);
       }
+    }
+  }
+
+  // Active dipping process state machine execution
+  if (data.currentPage == PAGE_ACTIVE_DIP || data.currentPage == PAGE_STOP_CONFIRM) {
+    processActiveDipping();
+  } else {
+    if (currentDipPhase != DIP_PHASE_IDLE) {
+      currentDipPhase = DIP_PHASE_IDLE;
+      motorMgr.stopMotor();
     }
   }
 
@@ -295,6 +471,7 @@ void loop() {
       motorMgr.stopMotor();
       data.isHomingActive = false;
       data.isDipBotActive = false;
+      currentDipPhase = DIP_PHASE_IDLE;
       display.markPageChanged(true);
       break;
 
@@ -331,16 +508,21 @@ void loop() {
 
     case UI_EVENT_START_DIP:
       Serial.println("UI Event: Starting dipping process...");
+      currentDipPhase = DIP_PHASE_IDLE;
       saveProcessHistoryToPrefs();
       break;
 
     case UI_EVENT_ABORT_DIP:
       Serial.println("UI Event: Aborting dipping process...");
+      currentDipPhase = DIP_PHASE_IDLE;
+      motorMgr.stopMotor();
       M5.Speaker.tone(300, 500);
       break;
 
     case UI_EVENT_FINISH_DIP:
       Serial.println("UI Event: Dipping process finished");
+      currentDipPhase = DIP_PHASE_IDLE;
+      motorMgr.stopMotor();
       M5.Speaker.tone(800, 500);
       break;
 
