@@ -38,7 +38,8 @@ enum UiEvent {
   UI_EVENT_BRIGHTNESS_CHANGED,
   UI_EVENT_MANUAL_TARE,
   UI_EVENT_MANUAL_HOME,
-  UI_EVENT_MANUAL_DIP_BOT
+  UI_EVENT_MANUAL_DIP_BOT,
+  UI_EVENT_MANUAL_STOP
 };
 
 // --- Display Data Container ---
@@ -53,6 +54,8 @@ struct DisplayData {
   bool capSensorOn = false;
   bool isUpPressed = false;     
   bool isDownPressed = false;   
+  bool isHomingActive = false;
+  bool isDipBotActive = false;
   int manualSpeed = 50;
   float currentPosition = 0.0;
   float currentWeight = 0.0;

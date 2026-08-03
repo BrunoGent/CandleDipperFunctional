@@ -107,70 +107,158 @@ void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   }
 }
 
-bool MotorManager::performHoming(float speedMMps) {
+void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs) {
+  if (speedMMps <= 0.0f) return;
+
+  if (speedMMps > 65.0f && _currentMode != MODE_SPREADCYCLE) {
+    setTMCMode(MODE_SPREADCYCLE);
+  } else if (speedMMps <= 65.0f && _currentMode != MODE_STEALTHCHOP) {
+    setTMCMode(MODE_STEALTHCHOP);
+  }
+
+  digitalWrite(PIN_MOTOR_DIR, directionUp ? HIGH : LOW);
+
+  float stepsPerSec = speedMMps * STEPS_PER_MM;
+  if (stepsPerSec <= 0.0f) return;
+  unsigned long intervalMicros = (unsigned long)(1000000.0f / stepsPerSec);
+  if (intervalMicros < 20) intervalMicros = 20;
+
+  float stepDistMM = 1.0f / STEPS_PER_MM;
+  unsigned long startMs = millis();
+
+  while (millis() - startMs < burstMs) {
+    if (_sensors) {
+      _sensors->update();
+      if (directionUp) {
+        if (_sensors->isTopLimitHit() || _positionMM <= 0.0f) {
+          if (_sensors->isTopLimitHit()) _positionMM = 0.0f;
+          stopMotor();
+          break;
+        }
+      } else {
+        if (_sensors->isCapSensorTriggered()) {
+          stopMotor();
+          break;
+        }
+      }
+    }
+
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+
+    if (directionUp) {
+      _positionMM -= stepDistMM;
+      if (_positionMM < 0.0f) _positionMM = 0.0f;
+    } else {
+      _positionMM += stepDistMM;
+    }
+
+    if (intervalMicros > 3) {
+      delayMicroseconds(intervalMicros - 3);
+    }
+  }
+}
+
+bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   // Homing sequence: move UP at speedMMps until top limit switch engages
   setTMCMode(MODE_SPREADCYCLE);
   
   unsigned long startTimeout = millis();
+  float stepsPerSec = speedMMps * STEPS_PER_MM;
+  unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
+  if (delayUs < 30) delayUs = 30;
+
+  // Stage 1: Fast search towards limit switch
   while (_sensors && !_sensors->readRawTopLimit()) {
-    // Force direct step without pos limit check during homing
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
+
     digitalWrite(PIN_MOTOR_DIR, HIGH);
     digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(5);
+    delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    
-    float stepsPerSec = speedMMps * STEPS_PER_MM;
-    unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
-    delayMicroseconds(delayUs > 50 ? delayUs : 50);
+    delayMicroseconds(delayUs);
 
-    // Safety timeout 15s
-    if (millis() - startTimeout > 15000) return false;
+    if (millis() - startTimeout > 15000) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
   }
 
-  // Back down slightly until switch opens
+  // Stage 2: Back down 2mm slightly until switch opens
   digitalWrite(PIN_MOTOR_DIR, LOW);
-  for (int i = 0; i < (int)(2.0f * STEPS_PER_MM); i++) { // move 2mm down
+  for (int i = 0; i < (int)(2.0f * STEPS_PER_MM); i++) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
     digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(5);
+    delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(200);
+    delayMicroseconds(250);
   }
 
-  // Slowly re-approach home
+  // Stage 3: Slowly re-approach home for precision zeroing
   while (_sensors && !_sensors->readRawTopLimit()) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
     digitalWrite(PIN_MOTOR_DIR, HIGH);
     digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(5);
+    delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
     delayMicroseconds(500);
   }
 
   _positionMM = 0.0f; // Zero home reference position
+  stopMotor();
   setTMCMode(MODE_STEALTHCHOP);
   return true;
 }
 
-bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec) {
+bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)()) {
   // 1. Move DOWN at downSpeedMMps until capacitive wax sensor triggers
   setTMCMode(MODE_STEALTHCHOP);
   unsigned long startTimeout = millis();
   while (_sensors && !_sensors->readRawCapSensor()) {
-    stepMotor(false, downSpeedMMps);
-    delayMicroseconds(50);
-    if (millis() - startTimeout > 20000) break; // Timeout guard
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      return false;
+    }
+    stepMotorBurst(false, downSpeedMMps, 15);
+    if (millis() - startTimeout > 25000) break; // Timeout guard
   }
 
-  // 2. Hold in wax for s_subDipTime
+  // 2. Hold in wax for holdTimeSec
   if (holdTimeSec > 0) {
-    delay(holdTimeSec * 1000);
+    unsigned long holdStart = millis();
+    while (millis() - holdStart < (unsigned long)(holdTimeSec * 1000)) {
+      if (stopCheck && stopCheck()) {
+        stopMotor();
+        return false;
+      }
+      delay(20);
+    }
   }
 
   // 3. Move back UP to 0mm home at upSpeedMMps
   while (_positionMM > 0.0f && (_sensors && !_sensors->readRawTopLimit())) {
-    stepMotor(true, upSpeedMMps);
-    delayMicroseconds(50);
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      return false;
+    }
+    stepMotorBurst(true, upSpeedMMps, 15);
   }
 
   _positionMM = 0.0f;
+  stopMotor();
   return true;
 }

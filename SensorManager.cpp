@@ -11,8 +11,8 @@ void SensorManager::begin() {
 }
 
 bool SensorManager::readRawTopLimit() {
-  // Mechanical Home Switch (NC config): Pin reads LOW when pressed/triggered
-  return (digitalRead(PIN_TOP_LIMIT_SW) == LOW);
+  // Mechanical Home Switch (NC config): Pin reads HIGH when limit switch is pressed/triggered (circuit opens)
+  return (digitalRead(PIN_TOP_LIMIT_SW) == HIGH);
 }
 
 bool SensorManager::readRawCapSensor() {

@@ -194,8 +194,19 @@ void DisplayManager::drawPage1_2() {
 void DisplayManager::drawManualPage() {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
-  drawButton(197, 41, 118, 46, "HOME", data.limitSwitchOn ? c_active : c_outline, data.limitSwitchOn ? TFT_BLACK : TFT_WHITE);
-  drawButton(197, 97, 118, 46, "DIP BOT", data.capSensorOn ? c_active : c_outline, data.capSensorOn ? TFT_BLACK : TFT_WHITE);
+  
+  if (data.isHomingActive) {
+    drawButton(197, 41, 118, 46, "STOP", TFT_RED, TFT_WHITE);
+  } else {
+    drawButton(197, 41, 118, 46, "HOME", data.limitSwitchOn ? c_active : c_outline, data.limitSwitchOn ? TFT_BLACK : TFT_WHITE);
+  }
+
+  if (data.isDipBotActive) {
+    drawButton(197, 97, 118, 46, "STOP", TFT_RED, TFT_WHITE);
+  } else {
+    drawButton(197, 97, 118, 46, "DIP BOT", data.capSensorOn ? c_active : c_outline, data.capSensorOn ? TFT_BLACK : TFT_WHITE);
+  }
+
   drawButton(197, 153, 118, 46, "TARE", TFT_ORANGE, TFT_BLACK);
   
   canvas.fillRoundRect(36, 41, 120, 50, 10, data.isUpPressed ? c_active : c_btn1);
@@ -585,11 +596,11 @@ UiEvent DisplayManager::updateTouch() {
       else if (data.currentPage == PAGE_MANUAL) {
         if (tx >= 197 && tx <= 315 && ty >= 41 && ty <= 87) { 
           data.pageChanged = true; 
-          eventTriggered = UI_EVENT_MANUAL_HOME;
+          eventTriggered = data.isHomingActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_MANUAL_HOME;
         }
         else if (tx >= 197 && tx <= 315 && ty >= 97 && ty <= 143) { 
           data.pageChanged = true; 
-          eventTriggered = UI_EVENT_MANUAL_DIP_BOT;
+          eventTriggered = data.isDipBotActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_MANUAL_DIP_BOT;
         }
         else if (tx >= 197 && tx <= 315 && ty >= 153 && ty <= 199) { 
           data.currentWeight = 0.0; 

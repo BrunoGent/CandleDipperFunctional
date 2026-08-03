@@ -28,6 +28,17 @@ float lastPosDisplayed = -999.0f;
 float lastWtDisplayed = -999.0f;
 
 // --- Helper Functions ---
+bool checkManualStop() {
+  M5.update();
+  if (M5.Touch.getCount() > 0) {
+    auto t = M5.Touch.getDetail();
+    if (t.wasPressed() || t.isPressed()) {
+      return true; // Screen touched -> Stop motion immediately
+    }
+  }
+  return false;
+}
+
 void syncNtpTime() {
   if (WiFi.status() == WL_CONNECTED) {
     configTzTime("GMT0BST,M3.5.0/1,M10.5.0/2", "pool.ntp.org", "time.nist.gov");
@@ -187,11 +198,11 @@ void loop() {
   // Handle continuous movement on Manual Page
   if (data.currentPage == PAGE_MANUAL) {
     if (data.isUpPressed) {
-      // Move UP at manualSpeed mm/s
-      motorMgr.stepMotor(true, (float)data.manualSpeed);
+      // Move UP at manualSpeed mm/s smoothly
+      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 15);
     } else if (data.isDownPressed) {
-      // Move DOWN at manualSpeed mm/s
-      motorMgr.stepMotor(false, (float)data.manualSpeed);
+      // Move DOWN at manualSpeed mm/s smoothly
+      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 15);
     } else {
       motorMgr.stopMotor();
     }
@@ -228,13 +239,33 @@ void loop() {
   switch (event) {
     case UI_EVENT_MANUAL_HOME:
       Serial.println("Executing Homing Sequence...");
-      motorMgr.performHoming((float)data.s_upSpeed);
+      data.isHomingActive = true;
+      display.markPageChanged(true);
+      display.renderCurrentPage();
+
+      motorMgr.performHoming((float)data.s_upSpeed, checkManualStop);
+
+      data.isHomingActive = false;
       display.markPageChanged(true);
       break;
 
     case UI_EVENT_MANUAL_DIP_BOT:
       Serial.println("Executing Dip Bot Sequence...");
-      motorMgr.performDipBot((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_subDipTime);
+      data.isDipBotActive = true;
+      display.markPageChanged(true);
+      display.renderCurrentPage();
+
+      motorMgr.performDipBot((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_subDipTime, checkManualStop);
+
+      data.isDipBotActive = false;
+      display.markPageChanged(true);
+      break;
+
+    case UI_EVENT_MANUAL_STOP:
+      Serial.println("UI Event: STOP requested!");
+      motorMgr.stopMotor();
+      data.isHomingActive = false;
+      data.isDipBotActive = false;
       display.markPageChanged(true);
       break;
 

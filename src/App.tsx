@@ -273,13 +273,14 @@ public:
   void begin(SensorManager* sensorMgr);
   
   void stepMotor(bool directionUp, float speedMMps);
+  void stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs = 20);
   void stopMotor();
 
   void setTMCMode(TMCMode mode);
   TMCMode getTMCMode() const { return _currentMode; }
 
-  bool performHoming(float speedMMps);
-  bool performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec);
+  bool performHoming(float speedMMps, bool (*stopCheck)() = nullptr);
+  bool performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)() = nullptr);
 
   float getCurrentPositionMM() const { return _positionMM; }
   void setCurrentPositionMM(float pos) { _positionMM = pos; }
@@ -347,7 +348,7 @@ public:
   bool isTopLimitHit() const { return _topLimitHit; }
   bool isCapSensorTriggered() const { return _capSensorTriggered; }
 
-  bool readRawTopLimit();
+  bool readRawTopLimit(); // Returns HIGH when NC mechanical switch is pressed
   bool readRawCapSensor();
 
 private:
@@ -377,6 +378,15 @@ SensorManager sensorMgr;
 ScaleManager scaleMgr;
 MotorManager motorMgr;
 
+bool checkManualStop() {
+  M5.update();
+  if (M5.Touch.getCount() > 0) {
+    auto t = M5.Touch.getDetail();
+    if (t.wasPressed() || t.isPressed()) return true;
+  }
+  return false;
+}
+
 void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
@@ -401,9 +411,9 @@ void loop() {
 
   if (data.currentPage == PAGE_MANUAL) {
     if (data.isUpPressed) {
-      motorMgr.stepMotor(true, (float)data.manualSpeed);
+      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 15);
     } else if (data.isDownPressed) {
-      motorMgr.stepMotor(false, (float)data.manualSpeed);
+      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 15);
     } else {
       motorMgr.stopMotor();
     }
@@ -412,11 +422,30 @@ void loop() {
   UiEvent event = display.updateTouch();
   switch (event) {
     case UI_EVENT_MANUAL_HOME:
-      motorMgr.performHoming((float)data.s_upSpeed);
+      data.isHomingActive = true;
+      display.markPageChanged(true);
+      display.renderCurrentPage();
+      motorMgr.performHoming((float)data.s_upSpeed, checkManualStop);
+      data.isHomingActive = false;
+      display.markPageChanged(true);
       break;
+
     case UI_EVENT_MANUAL_DIP_BOT:
-      motorMgr.performDipBot((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_subDipTime);
+      data.isDipBotActive = true;
+      display.markPageChanged(true);
+      display.renderCurrentPage();
+      motorMgr.performDipBot((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_subDipTime, checkManualStop);
+      data.isDipBotActive = false;
+      display.markPageChanged(true);
       break;
+
+    case UI_EVENT_MANUAL_STOP:
+      motorMgr.stopMotor();
+      data.isHomingActive = false;
+      data.isDipBotActive = false;
+      display.markPageChanged(true);
+      break;
+
     case UI_EVENT_MANUAL_TARE:
       scaleMgr.tare(10);
       break;
@@ -439,6 +468,8 @@ export default function App() {
   const [weight, setWeight] = useState<number>(0);
   const [speed, setSpeed] = useState<number>(50);
   const [posMM, setPosMM] = useState<number>(0.0);
+  const [isHoming, setIsHoming] = useState<boolean>(false);
+  const [isDipBot, setIsDipBot] = useState<boolean>(false);
   const [showNumpad, setShowNumpad] = useState<boolean>(false);
   const [numpadVal, setNumpadVal] = useState<string>('');
   const [activeSettingIdx, setActiveSettingIdx] = useState<number>(0);
@@ -747,31 +778,63 @@ export default function App() {
                         <div className="col-span-5 flex flex-col justify-between gap-1">
                           <button
                             onClick={() => {
-                              setPosMM(0.0);
-                              setLimitSwitch(true);
-                              setLastEvent('HOME sequence completed: Arm at 0.0mm');
+                              if (isHoming) {
+                                setIsHoming(false);
+                                setLastEvent('Homing motion STOPPED by user');
+                              } else {
+                                setIsHoming(true);
+                                setLastEvent('Homing Stage 1: Rapid search towards top limit switch...');
+                                setTimeout(() => {
+                                  setLastEvent('Homing Stage 2: Backing down 2mm & slow precision re-approach...');
+                                  setTimeout(() => {
+                                    setPosMM(0.0);
+                                    setLimitSwitch(true);
+                                    setIsHoming(false);
+                                    setLastEvent('Homing complete: Position zeroed to 0.0mm');
+                                  }, 800);
+                                }, 800);
+                              }
                             }}
-                            className="flex-1 rounded-lg text-xs font-bold flex items-center justify-center"
-                            style={{ backgroundColor: limitSwitch ? ts.activeBg : ts.outlineBg, color: limitSwitch ? '#000' : '#fff' }}
+                            className="flex-1 rounded-lg text-xs font-bold flex items-center justify-center transition-all"
+                            style={{ 
+                              backgroundColor: isHoming ? '#ef4444' : (limitSwitch ? ts.activeBg : ts.outlineBg), 
+                              color: isHoming ? '#ffffff' : (limitSwitch ? '#000000' : '#ffffff') 
+                            }}
                           >
-                            HOME
+                            {isHoming ? 'STOP' : 'HOME'}
                           </button>
                           <button
                             onClick={() => {
-                              setPosMM(120.0);
-                              setCapSensor(true);
-                              setLastEvent('Dip Bot executed: Lowered to wax sensor, holding...');
-                              setTimeout(() => {
-                                setCapSensor(false);
-                                setPosMM(0.0);
-                                setLimitSwitch(true);
-                                setLastEvent('Dip Bot complete: Arm returned to 0.0mm');
-                              }, 1500);
+                              if (isDipBot) {
+                                setIsDipBot(false);
+                                setLastEvent('Dip Bot motion STOPPED by user');
+                              } else {
+                                setIsDipBot(true);
+                                setLastEvent('Dip Bot Stage 1: Lowering to capacitive wax sensor...');
+                                setTimeout(() => {
+                                  setPosMM(120.0);
+                                  setCapSensor(true);
+                                  setLastEvent('Dip Bot Stage 2: In wax, holding...');
+                                  setTimeout(() => {
+                                    setCapSensor(false);
+                                    setLastEvent('Dip Bot Stage 3: Returning to 0.0mm home...');
+                                    setTimeout(() => {
+                                      setPosMM(0.0);
+                                      setLimitSwitch(true);
+                                      setIsDipBot(false);
+                                      setLastEvent('Dip Bot complete: Carriage home');
+                                    }, 800);
+                                  }, 800);
+                                }, 800);
+                              }
                             }}
-                            className="flex-1 rounded-lg text-xs font-bold flex items-center justify-center"
-                            style={{ backgroundColor: capSensor ? ts.activeBg : ts.outlineBg, color: capSensor ? '#000' : '#fff' }}
+                            className="flex-1 rounded-lg text-xs font-bold flex items-center justify-center transition-all"
+                            style={{ 
+                              backgroundColor: isDipBot ? '#ef4444' : (capSensor ? ts.activeBg : ts.outlineBg), 
+                              color: isDipBot ? '#ffffff' : (capSensor ? '#000000' : '#ffffff') 
+                            }}
                           >
-                            DIP BOT
+                            {isDipBot ? 'STOP' : 'DIP BOT'}
                           </button>
                           <button
                             onClick={() => { setWeight(0); setLastEvent('Tare executed: Scale zeroed (10 samples)'); }}

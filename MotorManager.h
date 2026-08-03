@@ -19,6 +19,7 @@ public:
   
   // Motion Commands
   void stepMotor(bool directionUp, float speedMMps);
+  void stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs = 20);
   void stopMotor();
 
   // Mode Configuration
@@ -26,8 +27,8 @@ public:
   TMCMode getTMCMode() const { return _currentMode; }
 
   // Homing & Dipping Routines
-  bool performHoming(float speedMMps);
-  bool performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec);
+  bool performHoming(float speedMMps, bool (*stopCheck)() = nullptr);
+  bool performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)() = nullptr);
 
   // Position Management
   float getCurrentPositionMM() const { return _positionMM; }
