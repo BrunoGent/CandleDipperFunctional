@@ -10,7 +10,6 @@
 #include "SensorManager.h"
 #include "ScaleManager.h"
 #include "MotorManager.h"
-#include "logo.h"
 
 // --- Global Managers & Objects ---
 DisplayManager display;
@@ -155,9 +154,6 @@ void setup() {
   data.s_softRamp   = prefs.getInt("s11", 50);
   data.s_tmcMode    = prefs.getInt("s12", 1);  // Default: SpreadCycle (1)
   data.s_tmcThreshold = prefs.getInt("s13", 30);
-  data.s_irun       = prefs.getInt("s14", 16); // Default IRUN = 16 (~0.6A RMS)
-  data.s_ihold      = prefs.getInt("s15", 4);  // Default IHOLD = 4 (~0.15A RMS) -> prevents overheating!
-  data.s_iholddelay = prefs.getInt("s16", 6);  // Default IHOLDDELAY = 6
   data.s_brightness = prefs.getInt("bright", 50);
   data.s_theme      = prefs.getInt("theme", 1);
   data.wifiSSID     = prefs.getString("wssid", "Trooli_BB00");
@@ -181,25 +177,34 @@ void setup() {
   sensorMgr.begin();
   scaleMgr.begin(&prefs);
   motorMgr.begin(&sensorMgr);
-  motorMgr.setTMCCurrents(data.s_irun, data.s_ihold, data.s_iholddelay);
 
   // Initialize display manager
   if (!display.begin(&M5.Display)) {
     Serial.println("Display Manager Initialization Failed!");
   }
 
+  // Boot Splash Screen
+  M5.Display.fillScreen(TFT_BLACK);
+  M5.Display.setTextColor(M5.Display.color565(255, 235, 130), TFT_BLACK);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextSize(3.0);
+  M5.Display.drawString("BEE MINE", 160, 100);
+  M5.Display.setTextSize(2.0);
+  M5.Display.drawString("DORSET", 160, 140);
+
   // Attempt Wi-Fi Connection
   WiFi.mode(WIFI_STA);
   WiFi.begin(data.wifiSSID.c_str(), wifiPass.c_str());
   unsigned long startWifi = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 1500) {
-    delay(50);
+  while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 3000) {
+    delay(100);
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     syncNtpTime();
   }
 
+  delay(1000);
   display.markPageChanged(true);
 }
 
@@ -584,12 +589,11 @@ void loop() {
 
     case UI_EVENT_SETTING_UPDATED:
       // Persist modified setting to Preferences
-      if (data.activeSetting >= 0 && data.activeSetting <= 16) {
+      if (data.activeSetting >= 0 && data.activeSetting <= 13) {
         char keyStr[8];
         snprintf(keyStr, sizeof(keyStr), "s%d", data.activeSetting);
         prefs.putInt(keyStr, display.getSettingValue(data.activeSetting));
       }
-      motorMgr.setTMCCurrents(data.s_irun, data.s_ihold, data.s_iholddelay);
       motorMgr.applyConfigMode(data.s_tmcMode, 0, data.s_tmcThreshold);
       break;
 

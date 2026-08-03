@@ -1,19 +1,17 @@
 #include "DisplayManager.h"
 
 // Setting metadata arrays
-static const char* settingNames[17] = {
+static const char* settingNames[14] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
   "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed",
   "Col. Limit", "Soft Limit", "Weight Dwell", "Soft Ramp",
-  "Driver Mode", "Hybrid Speed", "Run Current", "Hold Current",
-  "Hold Delay"
+  "Driver Mode", "Hybrid Speed"
 };
-static const char* settingUnits[17] = {
+static const char* settingUnits[14] = {
   "g", "g", "dips", "dips",
   "s", "s", "mm/s", "mm/s",
   "g", "mm", "ms", "ms",
-  "", "mm/s", "(0-31)", "(0-31)",
-  "(0-15)"
+  "", "mm/s"
 };
 static const char* themeNames[3] = { "Original", "Bee Mine", "Dark Mode" };
 
@@ -110,9 +108,6 @@ int DisplayManager::getSettingValue(int index) const {
      case 11: return data.s_softRamp;
      case 12: return data.s_tmcMode;
      case 13: return data.s_tmcThreshold;
-     case 14: return data.s_irun;
-     case 15: return data.s_ihold;
-     case 16: return data.s_iholddelay;
   }
   return 0;
 }
@@ -133,9 +128,6 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 11: data.s_softRamp = abs(val); break;
      case 12: data.s_tmcMode = (val < 0) ? 0 : (val % 3); break;
      case 13: data.s_tmcThreshold = abs(val); break;
-     case 14: data.s_irun = constrain(val, 0, 31); break;
-     case 15: data.s_ihold = constrain(val, 0, 31); break;
-     case 16: data.s_iholddelay = constrain(val, 0, 15); break;
   }
 }
 
@@ -354,71 +346,38 @@ void DisplayManager::drawMotorPage() {
   static const char* modeLabels[3] = { "StealthChop", "SpreadCycle", "Adaptive" };
 
   // Row 0: Driver Mode
-  int y0 = 40;
+  int y0 = 45;
   canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Driver Mode", 10, y0 + 12);
-  canvas.fillRoundRect(160, y0, 150, 24, 4, c_btn1);
+  canvas.drawString("Driver Mode", 10, y0 + 15);
+  canvas.fillRoundRect(160, y0, 150, 32, 5, c_btn1);
   canvas.setTextDatum(middle_center);
   canvas.setTextColor(c_btnTxt, c_btn1);
-  canvas.drawString(modeLabels[data.s_tmcMode % 3], 235, y0 + 12);
+  canvas.drawString(modeLabels[data.s_tmcMode % 3], 235, y0 + 16);
 
   // Row 1: Speed Threshold (for Adaptive mode)
-  int y1 = 67;
+  int y1 = 83;
   canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Hybrid Speed", 10, y1 + 12);
+  canvas.drawString("Hybrid Speed", 10, y1 + 15);
   uint16_t threshBg = (data.s_tmcMode == 2) ? c_btn1 : c_outline;
   uint16_t threshTxt = (data.s_tmcMode == 2) ? c_btnTxt : TFT_DARKGREY;
-  canvas.fillRoundRect(160, y1, 150, 24, 4, threshBg);
+  canvas.fillRoundRect(160, y1, 150, 32, 5, threshBg);
   canvas.setTextDatum(middle_center);
   canvas.setTextColor(threshTxt, threshBg);
   String threshStr = String(data.s_tmcThreshold) + " mm/s";
-  canvas.drawString(threshStr.c_str(), 235, y1 + 12);
+  canvas.drawString(threshStr.c_str(), 235, y1 + 16);
 
-  // Row 2: Run Current IRUN
-  int y2 = 94;
+  // Row 2: Motor Power Toggle
+  int y2 = 121;
   canvas.setTextDatum(middle_left);
   canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Run Current", 10, y2 + 12);
-  canvas.fillRoundRect(160, y2, 150, 24, 4, c_outline);
-  canvas.setTextDatum(middle_center);
-  canvas.setTextColor(TFT_WHITE, c_outline);
-  String irunStr = String(data.s_irun) + " (0-31)";
-  canvas.drawString(irunStr.c_str(), 235, y2 + 12);
-
-  // Row 3: Hold Current IHOLD
-  int y3 = 121;
-  canvas.setTextDatum(middle_left);
-  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Hold Current", 10, y3 + 12);
-  canvas.fillRoundRect(160, y3, 150, 24, 4, c_outline);
-  canvas.setTextDatum(middle_center);
-  canvas.setTextColor(TFT_WHITE, c_outline);
-  String iholdStr = String(data.s_ihold) + " (0-31)";
-  canvas.drawString(iholdStr.c_str(), 235, y3 + 12);
-
-  // Row 4: Hold Delay IHOLDDELAY
-  int y4 = 148;
-  canvas.setTextDatum(middle_left);
-  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Hold Delay", 10, y4 + 12);
-  canvas.fillRoundRect(160, y4, 150, 24, 4, c_outline);
-  canvas.setTextDatum(middle_center);
-  canvas.setTextColor(TFT_WHITE, c_outline);
-  String iholdDelayStr = String(data.s_iholddelay) + " (0-15)";
-  canvas.drawString(iholdDelayStr.c_str(), 235, y4 + 12);
-
-  // Row 5: Motor Power Toggle
-  int y5 = 175;
-  canvas.setTextDatum(middle_left);
-  canvas.setTextColor(c_bannerTxt == TFT_BLACK ? TFT_WHITE : c_btnTxt, c_bg);
-  canvas.drawString("Motor Power", 10, y5 + 13);
+  canvas.drawString("Motor Power", 10, y2 + 15);
   uint16_t btnColor = data.isMotorEnabled ? canvas.color565(40, 140, 40) : canvas.color565(160, 40, 40);
-  canvas.fillRoundRect(160, y5, 150, 26, 4, btnColor);
+  canvas.fillRoundRect(160, y2, 150, 32, 5, btnColor);
   canvas.setTextDatum(middle_center);
   canvas.setTextColor(TFT_WHITE, btnColor);
-  canvas.drawString(data.isMotorEnabled ? "ENABLED" : "DISABLED", 235, y5 + 13);
+  canvas.drawString(data.isMotorEnabled ? "ENABLED" : "DISABLED", 235, y2 + 16);
 }
 
 void DisplayManager::drawSettingsList(int startIndex, int count) {
@@ -865,31 +824,16 @@ UiEvent DisplayManager::updateTouch() {
       }
       else if (data.currentPage == PAGE_SETTING_MOTOR) {
         if (tx >= 160 && tx <= 310) {
-          if (ty >= 38 && ty <= 64) { // Driver Mode Toggle
+          if (ty >= 45 && ty <= 77) { // Driver Mode Toggle
             data.s_tmcMode = (data.s_tmcMode + 1) % 3;
             data.pageChanged = true;
             eventTriggered = UI_EVENT_SETTING_UPDATED;
-          } else if (ty >= 65 && ty <= 91) { // Hybrid Speed Threshold Numpad
+          } else if (ty >= 83 && ty <= 115) { // Hybrid Speed Threshold Numpad
             data.activeSetting = 13;
             data.numpadStr = "";
             data.showNumpad = true;
             data.pageChanged = true;
-          } else if (ty >= 92 && ty <= 118) { // Run Current IRUN Numpad
-            data.activeSetting = 14;
-            data.numpadStr = "";
-            data.showNumpad = true;
-            data.pageChanged = true;
-          } else if (ty >= 119 && ty <= 145) { // Hold Current IHOLD Numpad
-            data.activeSetting = 15;
-            data.numpadStr = "";
-            data.showNumpad = true;
-            data.pageChanged = true;
-          } else if (ty >= 146 && ty <= 172) { // Hold Delay IHOLDDELAY Numpad
-            data.activeSetting = 16;
-            data.numpadStr = "";
-            data.showNumpad = true;
-            data.pageChanged = true;
-          } else if (ty >= 173 && ty <= 202) { // Motor Power Toggle
+          } else if (ty >= 121 && ty <= 153) { // Motor Power Toggle
             data.isMotorEnabled = !data.isMotorEnabled;
             data.pageChanged = true;
             eventTriggered = UI_EVENT_MOTOR_ENABLE_TOGGLE;
@@ -904,7 +848,7 @@ UiEvent DisplayManager::updateTouch() {
             else if (data.currentPage == PAGE_SETTING_MOTION) data.activeSetting = 4 + row;
             else if (data.currentPage == PAGE_SETTING_SENSOR) data.activeSetting = 8 + row;
             
-            if (data.activeSetting <= 16) {
+            if (data.activeSetting <= 13) {
               data.numpadStr = ""; 
               data.showNumpad = true; 
               data.pageChanged = true;

@@ -79,9 +79,6 @@ struct DisplayData {
   int s_softRamp = 50;     // Soft stop ramp in ms (default 50)
   int s_tmcMode = 1;       // 0: StealthChop, 1: SpreadCycle, 2: Adaptive
   int s_tmcThreshold = 30; // Adaptive Threshold (mm/s)
-  int s_irun = 16;         // Run Current (0-31, default 16 = ~0.6A RMS)
-  int s_ihold = 4;         // Hold Current (0-31, default 4 = ~0.15A RMS)
-  int s_iholddelay = 6;    // Hold Delay (0-15, default 6)
   bool isMotorEnabled = true; // Motor power enable/disable toggle
   int s_brightness = 50;  // 1 to 99%
   int s_theme = 1;        // 0: Original, 1: Bee Mine, 2: Dark Mode
