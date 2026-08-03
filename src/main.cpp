@@ -200,26 +200,17 @@ void loop() {
     webServer.handleClient();
   }
 
-  // Handle continuous movement on Manual Page
+  // Live screen refresh on Manual Page when scale weight or position changes
   if (data.currentPage == PAGE_MANUAL) {
-    if (data.isUpPressed || data.isDownPressed) {
-      bool dirUp = data.isUpPressed;
-      float speed = (float)data.manualSpeed;
-
-      // Pulse stepper motor smoothly using non-blocking microsecond timing
-      motorMgr.stepMotor(dirUp, speed);
-
-      // Throttle display refresh during continuous motion so TFT sprite updates don't interrupt step pulses
-      static unsigned long lastDisplayRefresh = 0;
-      if (millis() - lastDisplayRefresh >= 150) {
-        lastDisplayRefresh = millis();
-        if (abs(data.currentPosition - lastPosDisplayed) >= 0.2f) {
-          lastPosDisplayed = data.currentPosition;
-          display.markPageChanged(true);
-        }
+    motorMgr.stopMotor();
+    static unsigned long lastScaleRefresh = 0;
+    if (millis() - lastScaleRefresh >= 250) {
+      lastScaleRefresh = millis();
+      if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || abs(data.currentPosition - lastPosDisplayed) >= 0.2f) {
+        lastWtDisplayed = data.currentWeight;
+        lastPosDisplayed = data.currentPosition;
+        display.markPageChanged(true);
       }
-    } else {
-      motorMgr.stopMotor();
     }
   }
 

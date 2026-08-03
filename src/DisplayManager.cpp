@@ -427,20 +427,9 @@ void DisplayManager::endDippingProcess(bool aborted) {
 UiEvent DisplayManager::updateTouch() {
   UiEvent eventTriggered = UI_EVENT_NONE;
 
-  // Manual Page continuous button pressing check
-  bool currentUpPressed = false, currentDownPressed = false;
-  if (data.currentPage == PAGE_MANUAL && M5.Touch.getCount() > 0) {
-    auto touch = M5.Touch.getDetail();
-    if (touch.isPressed()) {
-      if (touch.x >= 36 && touch.x <= 156 && touch.y >= 41 && touch.y <= 91) currentUpPressed = true;
-      else if (touch.x >= 36 && touch.x <= 156 && touch.y >= 149 && touch.y <= 199) currentDownPressed = true;
-    }
-  }
-  if (currentUpPressed != data.isUpPressed || currentDownPressed != data.isDownPressed) {
-    data.isUpPressed = currentUpPressed; 
-    data.isDownPressed = currentDownPressed; 
-    data.pageChanged = true;
-  }
+  // Manual Page continuous button pressing check - disabled
+  data.isUpPressed = false;
+  data.isDownPressed = false;
 
   // Touch released gesture processing
   if (M5.Touch.getCount() > 0) {

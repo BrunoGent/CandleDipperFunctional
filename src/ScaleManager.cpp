@@ -62,13 +62,25 @@ void ScaleManager::update() {
   // Poll HX711 every 100ms (10Hz rate)
   if (millis() - _lastPollMs >= 100) {
     _lastPollMs = millis();
-    _rawReadout = readRawBitbang();
-    long netVal = _rawReadout - _zeroOffset;
-    if (_scaleFactor != 0.0f) {
-      float calculatedGrams = (float)netVal / _scaleFactor;
-      // Filter slight jitter near zero
-      if (abs(calculatedGrams) < 0.2f) calculatedGrams = 0.0f;
-      _currentWeightGrams = calculatedGrams;
+    long newRaw = readRawBitbang();
+
+    // Ignore invalid readings (0 or 0x7FFFFF max reading on disconnected line)
+    if (newRaw != 0 && newRaw != 0x7FFFFF && newRaw != -1) {
+      _rawReadout = newRaw;
+      long netVal = _rawReadout - _zeroOffset;
+      if (_scaleFactor != 0.0f) {
+        float calculatedGrams = (float)netVal / _scaleFactor;
+
+        // Filter slight jitter near zero
+        if (abs(calculatedGrams) < 0.2f) calculatedGrams = 0.0f;
+
+        // Exponential moving average filter for smooth, stable load cell readings
+        if (abs(_currentWeightGrams) < 0.1f && abs(calculatedGrams) > 1.0f) {
+          _currentWeightGrams = calculatedGrams; // Instant response on new load
+        } else {
+          _currentWeightGrams = (_currentWeightGrams * 0.75f) + (calculatedGrams * 0.25f);
+        }
+      }
     }
   }
 }

@@ -53,10 +53,10 @@ void MotorManager::stopMotor() {
 void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   if (speedMMps <= 0.0f) return;
 
-  // Select TMC2209 mode based on speed
-  if (speedMMps > 65.0f && _currentMode != MODE_SPREADCYCLE) {
+  // Keep StealthChop2 enabled for whisper-quiet motor operation up to 80 mm/s
+  if (speedMMps > 80.0f && _currentMode != MODE_SPREADCYCLE) {
     setTMCMode(MODE_SPREADCYCLE);
-  } else if (speedMMps <= 65.0f && _currentMode != MODE_STEALTHCHOP) {
+  } else if (speedMMps <= 80.0f && _currentMode != MODE_STEALTHCHOP) {
     setTMCMode(MODE_STEALTHCHOP);
   }
 
@@ -165,7 +165,11 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
 
 bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   // Homing sequence: move UP at speedMMps until top limit switch engages
-  setTMCMode(MODE_SPREADCYCLE);
+  if (speedMMps <= 80.0f) {
+    setTMCMode(MODE_STEALTHCHOP);
+  } else {
+    setTMCMode(MODE_SPREADCYCLE);
+  }
   
   unsigned long startTimeout = millis();
   float stepsPerSec = speedMMps * STEPS_PER_MM;
