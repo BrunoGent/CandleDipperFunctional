@@ -264,12 +264,12 @@ void processActiveDipping() {
       digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN direction
       float speed = (float)data.s_downSpeed;
       if (speed <= 0.0f) speed = 20.0f;
-      float stepsPerSec = speed * STEPS_PER_MM;
+      float stepsPerSec = speed * MotorManager::STEPS_PER_MM;
       unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
       if (delayUs < 20) delayUs = 20;
 
       unsigned long startTimeout = millis();
-      unsigned long lastUiUpdate = millis();
+      float stepDistMM = 1.0f / MotorManager::STEPS_PER_MM;
 
       while (sensorMgr.update(), !sensorMgr.isCapSensorTriggered()) {
         if (checkManualStop()) {
@@ -281,17 +281,8 @@ void processActiveDipping() {
         delayMicroseconds(3);
         digitalWrite(PIN_MOTOR_STEP, LOW);
 
-        data.currentPosition += (1.0f / STEPS_PER_MM);
+        data.currentPosition += stepDistMM;
         motorMgr.setCurrentPositionMM(data.currentPosition);
-
-        // Update UI and scale weight every 200ms without interrupting stepper timing
-        if (millis() - lastUiUpdate >= 200) {
-          lastUiUpdate = millis();
-          scaleMgr.update();
-          data.currentWeight = scaleMgr.getWeightGrams();
-          display.markPageChanged(true);
-          display.renderCurrentPage();
-        }
 
         delayMicroseconds(delayUs);
 
@@ -335,12 +326,12 @@ void processActiveDipping() {
       digitalWrite(PIN_MOTOR_DIR, HIGH); // UP direction
       float speed = (float)data.s_upSpeed;
       if (speed <= 0.0f) speed = 30.0f;
-      float stepsPerSec = speed * STEPS_PER_MM;
+      float stepsPerSec = speed * MotorManager::STEPS_PER_MM;
       unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
       if (delayUs < 20) delayUs = 20;
 
       unsigned long startTimeout = millis();
-      unsigned long lastUiUpdate = millis();
+      float stepDistMM = 1.0f / MotorManager::STEPS_PER_MM;
 
       while (sensorMgr.update(), (!sensorMgr.isTopLimitHit() && data.currentPosition > 0.0f)) {
         if (checkManualStop()) {
@@ -352,18 +343,9 @@ void processActiveDipping() {
         delayMicroseconds(3);
         digitalWrite(PIN_MOTOR_STEP, LOW);
 
-        data.currentPosition -= (1.0f / STEPS_PER_MM);
+        data.currentPosition -= stepDistMM;
         if (data.currentPosition < 0.0f) data.currentPosition = 0.0f;
         motorMgr.setCurrentPositionMM(data.currentPosition);
-
-        // Update UI and scale weight every 200ms without interrupting stepper timing
-        if (millis() - lastUiUpdate >= 200) {
-          lastUiUpdate = millis();
-          scaleMgr.update();
-          data.currentWeight = scaleMgr.getWeightGrams();
-          display.markPageChanged(true);
-          display.renderCurrentPage();
-        }
 
         delayMicroseconds(delayUs);
 
