@@ -271,7 +271,7 @@ void processActiveDipping() {
       unsigned long startTimeout = millis();
       unsigned long lastUiUpdate = millis();
 
-      while (sensorMgr.readAll(), !sensorMgr.isCapSensorTriggered()) {
+      while (sensorMgr.update(), !sensorMgr.isCapSensorTriggered()) {
         if (checkManualStop()) {
           motorMgr.stopMotor();
           return;
@@ -342,7 +342,7 @@ void processActiveDipping() {
       unsigned long startTimeout = millis();
       unsigned long lastUiUpdate = millis();
 
-      while (sensorMgr.readAll(), (!sensorMgr.isTopLimitHit() && data.currentPosition > 0.0f)) {
+      while (sensorMgr.update(), (!sensorMgr.isTopLimitHit() && data.currentPosition > 0.0f)) {
         if (checkManualStop()) {
           motorMgr.stopMotor();
           return;
