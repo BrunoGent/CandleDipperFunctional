@@ -10,6 +10,7 @@
 #include "SensorManager.h"
 #include "ScaleManager.h"
 #include "MotorManager.h"
+#include "logo.h"
 
 // --- Global Managers & Objects ---
 DisplayManager display;
@@ -185,12 +186,10 @@ void setup() {
 
   // Boot Splash Screen
   M5.Display.fillScreen(TFT_BLACK);
-  M5.Display.setTextColor(M5.Display.color565(255, 235, 130), TFT_BLACK);
-  M5.Display.setTextDatum(middle_center);
-  M5.Display.setTextSize(3.0);
-  M5.Display.drawString("BEE MINE", 160, 100);
-  M5.Display.setTextSize(2.0);
-  M5.Display.drawString("DORSET", 160, 140);
+  uint16_t logoColor = M5.Display.color565(255, 235, 130); // Bee Mine Pastel Yellow
+  int logoX = (M5.Display.width() - LOGO_WIDTH) / 2;
+  int logoY = (M5.Display.height() - LOGO_HEIGHT) / 2;
+  M5.Display.drawXBitmap(logoX, logoY, epd_bitmap_beemine_logo_only_with_colita, LOGO_WIDTH, LOGO_HEIGHT, logoColor);
 
   // Attempt Wi-Fi Connection
   WiFi.mode(WIFI_STA);
