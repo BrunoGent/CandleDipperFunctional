@@ -51,6 +51,14 @@ void MotorManager::setTMCMode(TMCMode mode) {
   }
 }
 
+void MotorManager::setTMCCurrents(int irun, int ihold, int iholddelay) {
+  uint32_t rRun = (uint32_t)constrain(irun, 0, 31);
+  uint32_t rHold = (uint32_t)constrain(ihold, 0, 31);
+  uint32_t rDelay = (uint32_t)constrain(iholddelay, 0, 15);
+  uint32_t val = (rDelay << 16) | (rRun << 8) | rHold;
+  sendUARTCommand(0x10, val);
+}
+
 void MotorManager::applyConfigMode(int modeSetting, float speedMMps, int thresholdMMps) {
   if (modeSetting == 0) {
     setTMCMode(MODE_STEALTHCHOP);
@@ -267,7 +275,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     digitalWrite(PIN_MOTOR_STEP, LOW);
     delayMicroseconds(delayUs);
 
-    if (millis() - startTimeout > 15000) {
+    if (millis() - startTimeout > 60000) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
       return false;

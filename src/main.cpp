@@ -155,6 +155,9 @@ void setup() {
   data.s_softRamp   = prefs.getInt("s11", 50);
   data.s_tmcMode    = prefs.getInt("s12", 1);  // Default: SpreadCycle (1)
   data.s_tmcThreshold = prefs.getInt("s13", 30);
+  data.s_irun       = prefs.getInt("s14", 16); // Default IRUN = 16 (~0.6A RMS)
+  data.s_ihold      = prefs.getInt("s15", 4);  // Default IHOLD = 4 (~0.15A RMS) -> prevents overheating!
+  data.s_iholddelay = prefs.getInt("s16", 6);  // Default IHOLDDELAY = 6
   data.s_brightness = prefs.getInt("bright", 50);
   data.s_theme      = prefs.getInt("theme", 1);
   data.wifiSSID     = prefs.getString("wssid", "Trooli_BB00");
@@ -178,6 +181,7 @@ void setup() {
   sensorMgr.begin();
   scaleMgr.begin(&prefs);
   motorMgr.begin(&sensorMgr);
+  motorMgr.setTMCCurrents(data.s_irun, data.s_ihold, data.s_iholddelay);
 
   // Initialize display manager
   if (!display.begin(&M5.Display)) {
@@ -189,7 +193,7 @@ void setup() {
   uint16_t logoColor = M5.Display.color565(255, 235, 130); // Bee Mine Pastel Yellow
   int logoX = (M5.Display.width() - LOGO_WIDTH) / 2;
   int logoY = (M5.Display.height() - LOGO_HEIGHT) / 2;
-  M5.Display.drawXBitmap(logoX, logoY, epd_bitmap_beemine_logo_only_with_colita, LOGO_WIDTH, LOGO_HEIGHT, logoColor);
+  M5.Display.drawBitmap(logoX, logoY, epd_bitmap_beemine_logo_only_with_colita, LOGO_WIDTH, LOGO_HEIGHT, logoColor);
 
   // Attempt Wi-Fi Connection
   WiFi.mode(WIFI_STA);
@@ -588,11 +592,12 @@ void loop() {
 
     case UI_EVENT_SETTING_UPDATED:
       // Persist modified setting to Preferences
-      if (data.activeSetting >= 0 && data.activeSetting <= 13) {
+      if (data.activeSetting >= 0 && data.activeSetting <= 16) {
         char keyStr[8];
         snprintf(keyStr, sizeof(keyStr), "s%d", data.activeSetting);
         prefs.putInt(keyStr, display.getSettingValue(data.activeSetting));
       }
+      motorMgr.setTMCCurrents(data.s_irun, data.s_ihold, data.s_iholddelay);
       motorMgr.applyConfigMode(data.s_tmcMode, 0, data.s_tmcThreshold);
       break;
 

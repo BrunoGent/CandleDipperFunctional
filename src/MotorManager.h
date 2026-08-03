@@ -25,6 +25,7 @@ public:
   // Mode Configuration
   void setTMCMode(TMCMode mode);
   void applyConfigMode(int modeSetting, float speedMMps, int thresholdMMps);
+  void setTMCCurrents(int irun, int ihold, int iholddelay);
   TMCMode getTMCMode() const { return _currentMode; }
 
   // Power Enable / Disable
