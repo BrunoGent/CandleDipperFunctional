@@ -240,25 +240,19 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
   }
 }
 
-// --- Sensor Debounce Helpers for Homing ---
-static bool isTopLimitActive(SensorManager* sensors) {
+// --- Fast Sensor Helpers for Homing ---
+static inline bool checkTopLimitFast(SensorManager* sensors) {
   if (!sensors) return false;
-  int hitCount = 0;
-  for (int i = 0; i < 4; i++) {
-    if (sensors->readRawTopLimit()) hitCount++;
-    delayMicroseconds(200);
-  }
-  return (hitCount >= 3);
+  if (!sensors->readRawTopLimit()) return false;
+  delayMicroseconds(2);
+  return sensors->readRawTopLimit();
 }
 
-static bool isTopLimitInactive(SensorManager* sensors) {
+static inline bool checkTopLimitCleared(SensorManager* sensors) {
   if (!sensors) return true;
-  int clearCount = 0;
-  for (int i = 0; i < 4; i++) {
-    if (!sensors->readRawTopLimit()) clearCount++;
-    delayMicroseconds(200);
-  }
-  return (clearCount >= 3);
+  if (sensors->readRawTopLimit()) return false;
+  delayMicroseconds(2);
+  return !sensors->readRawTopLimit();
 }
 
 bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
@@ -268,13 +262,13 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   float stepsPerSec = speedMMps * STEPS_PER_MM;
   if (stepsPerSec <= 0.0f) stepsPerSec = 40.0f * STEPS_PER_MM;
   unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
-  if (delayUs < 30) delayUs = 30;
+  if (delayUs < 40) delayUs = 40;
 
   // Stage 1: Fast search UP towards limit switch
   digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(20);
+  delayMicroseconds(50);
 
-  while (_sensors && !isTopLimitActive(_sensors)) {
+  while (_sensors && !checkTopLimitFast(_sensors)) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
@@ -293,17 +287,17 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     }
   }
 
-  // Stop & pause brief moment to settle mechanical vibration
+  // Complete mechanical stop & pause to allow carriage inertia to dissipate
   stopMotor();
-  delay(100);
+  delay(150);
 
-  // Stage 2: Back DOWN until limit switch re-opens
+  // Stage 2: Back DOWN gently until limit switch clears
   digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(20);
+  delayMicroseconds(50);
 
-  int maxBackoffSteps = (int)(10.0f * STEPS_PER_MM); // up to 10mm backoff limit
+  int maxBackoffSteps = (int)(10.0f * STEPS_PER_MM); // up to 10mm backoff
   int stepsBack = 0;
-  while (_sensors && !isTopLimitInactive(_sensors) && stepsBack < maxBackoffSteps) {
+  while (_sensors && !checkTopLimitCleared(_sensors) && stepsBack < maxBackoffSteps) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
@@ -325,13 +319,13 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   }
 
   stopMotor();
-  delay(100);
+  delay(150);
 
-  // Stage 3: Slow precision approach UP for zero contact
+  // Stage 3: Slow precision approach UP (3 mm/s) for zero contact
   digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(20);
+  delayMicroseconds(50);
 
-  while (_sensors && !isTopLimitActive(_sensors)) {
+  while (_sensors && !checkTopLimitFast(_sensors)) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       setTMCMode(MODE_STEALTHCHOP);
@@ -340,15 +334,15 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(800); // Slow 6.25 mm/s precision approach
+    delayMicroseconds(1666); // 3 mm/s precision approach
   }
 
   stopMotor();
-  delay(100);
+  delay(150);
 
-  // Stage 4: Back off 1.5mm DOWN so switch releases and motor isn't stalled against physical endstop
+  // Stage 4: Back off 1.5mm DOWN to relieve switch tension and position at 0.0mm home
   digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(20);
+  delayMicroseconds(50);
 
   for (int i = 0; i < (int)(1.5f * STEPS_PER_MM); i++) {
     digitalWrite(PIN_MOTOR_STEP, HIGH);
@@ -357,7 +351,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     delayMicroseconds(400);
   }
 
-  _positionMM = 0.0f; // Calibrate 0.0mm reference at resting clearance position
+  _positionMM = 0.0f; // Calibrate home reference
   stopMotor();
   setTMCMode(MODE_STEALTHCHOP);
   return true;
