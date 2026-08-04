@@ -17,9 +17,13 @@ void MotorManager::begin(SensorManager* sensorMgr) {
   digitalWrite(PIN_MOTOR_STEP, LOW);
   digitalWrite(PIN_MOTOR_DIR, LOW);
   
-  // Enable driver (Active LOW)
+  // Enable driver immediately on boot (Active LOW)
   digitalWrite(PIN_MOTOR_ENABLE, LOW);
   _enabled = true;
+
+  // Initialize Hardware Serial2 once on GPIO 18 for single-wire TMC UART
+  Serial2.begin(115200, SERIAL_8N1, PIN_MOTOR_UART, PIN_MOTOR_UART);
+  delay(10);
 
   // Initialize TMC2209 driver registers over UART:
   // 1. IHOLD_IRUN (0x10): Run current = 16 (~0.6A RMS), Standby = 8, Hold delay = 6
@@ -34,20 +38,20 @@ void MotorManager::begin(SensorManager* sensorMgr) {
   sendUARTCommand(0x70, 0xC40D001D);
   delay(5);
 
-  // 4. Set TMC mode to StealthChop2
+  // 4. Set TMC mode to StealthChop2 (GCONF mstep_reg_select = 1)
   setTMCMode(MODE_STEALTHCHOP);
 }
 
 void MotorManager::setTMCMode(TMCMode mode) {
-  if (_currentMode == mode) return; // Do not resend UART packets if driver is already in requested mode
   _currentMode = mode;
   // Send TMC2209 UART packet to set GCONF register (0x00)
+  // Bit 6 (0x40) = mstep_reg_select: 1 = Use register CHOPCONF for microsteps
+  // Bit 7 (0x80) = multistep_filt: 1 = enable filter
+  // Bit 2 (0x04) = en_SpreadCycle: 1 = SpreadCycle, 0 = StealthChop2
   if (mode == MODE_STEALTHCHOP) {
-    // StealthChop2 enabled (en_SpreadCycle = 0, mstep_reg_select = 1)
-    sendUARTCommand(0x00, 0x00000080);
+    sendUARTCommand(0x00, 0x000000C0); // StealthChop2 enabled
   } else {
-    // SpreadCycle enabled (en_SpreadCycle = 1, mstep_reg_select = 1 for rapid travel)
-    sendUARTCommand(0x00, 0x00000084);
+    sendUARTCommand(0x00, 0x000000C4); // SpreadCycle enabled
   }
 }
 
@@ -97,30 +101,8 @@ void MotorManager::sendUARTCommand(uint8_t reg, uint32_t val) {
   msg[6] = val & 0xFF;
   msg[7] = calcTMC2209CRC(msg, 7);
 
-  // Method 1: Hardware Serial2 on ESP32
-  Serial2.begin(115200, SERIAL_8N1, -1, PIN_MOTOR_UART);
-  delayMicroseconds(200);
   Serial2.write(msg, 8);
   Serial2.flush();
-  Serial2.end();
-
-  // Method 2: Software Bit-Bang UART as backup for single-wire PIN 18
-  pinMode(PIN_MOTOR_UART, OUTPUT);
-  digitalWrite(PIN_MOTOR_UART, HIGH);
-  delayMicroseconds(100);
-
-  for (int b = 0; b < 8; b++) {
-    uint8_t byteVal = msg[b];
-    digitalWrite(PIN_MOTOR_UART, LOW); // Start bit
-    delayMicroseconds(8);
-    for (int i = 0; i < 8; i++) {
-      digitalWrite(PIN_MOTOR_UART, (byteVal & (1 << i)) ? HIGH : LOW);
-      delayMicroseconds(8);
-    }
-    digitalWrite(PIN_MOTOR_UART, HIGH); // Stop bit
-    delayMicroseconds(9);
-  }
-  delayMicroseconds(100);
 }
 
 void MotorManager::stopMotor() {
@@ -129,6 +111,7 @@ void MotorManager::stopMotor() {
 
 void MotorManager::stepMotor(bool directionUp, float speedMMps) {
   if (speedMMps <= 0.0f) return;
+  setMotorEnable(true);
 
   // Keep StealthChop2 enabled for whisper-quiet motor operation up to 80 mm/s
   if (speedMMps > 80.0f && _currentMode != MODE_SPREADCYCLE) {
@@ -186,6 +169,7 @@ void MotorManager::stepMotor(bool directionUp, float speedMMps) {
 
 void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs) {
   if (speedMMps <= 0.0f) return;
+  setMotorEnable(true);
 
   if (speedMMps > 65.0f && _currentMode != MODE_SPREADCYCLE) {
     setTMCMode(MODE_SPREADCYCLE);
@@ -256,6 +240,7 @@ static inline bool checkTopLimitCleared(SensorManager* sensors) {
 }
 
 bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
+  setMotorEnable(true); // Ensure motor powered
   setTMCMode(MODE_STEALTHCHOP);
   
   unsigned long startTimeout = millis();
@@ -264,7 +249,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
   if (delayUs < 40) delayUs = 40;
 
-  // Stage 1: Fast search UP towards limit switch
+  // Stage 1: Fast Seek UP towards top limit switch
   digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
   delayMicroseconds(50);
 
@@ -287,11 +272,10 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     }
   }
 
-  // Complete mechanical stop & pause to allow carriage inertia to dissipate
   stopMotor();
-  delay(150);
+  delay(100);
 
-  // Stage 2: Back DOWN gently until limit switch clears
+  // Stage 2: Backoff DOWN gently until switch clears
   digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
   delayMicroseconds(50);
 
@@ -310,7 +294,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     stepsBack++;
   }
 
-  // Extra clearance (1.0mm)
+  // Extra 1.0mm clearance backoff
   for (int i = 0; i < (int)(1.0f * STEPS_PER_MM); i++) {
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
@@ -319,9 +303,9 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   }
 
   stopMotor();
-  delay(150);
+  delay(100);
 
-  // Stage 3: Slow precision approach UP (3 mm/s) for zero contact
+  // Stage 3: Slow precision approach UP (3 mm/s)
   digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
   delayMicroseconds(50);
 
@@ -338,26 +322,43 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   }
 
   stopMotor();
-  delay(150);
+  delay(100);
 
-  // Stage 4: Back off 1.5mm DOWN to relieve switch tension and position at 0.0mm home
+  // Stage 4 (Standard Practice): Move DOWN slowly (1 mm/s) until switch JUST RELEASES!
   digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
   delayMicroseconds(50);
 
-  for (int i = 0; i < (int)(1.5f * STEPS_PER_MM); i++) {
+  while (_sensors && !checkTopLimitCleared(_sensors)) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(400);
+    delayMicroseconds(5000); // 1 mm/s release creep
   }
 
-  _positionMM = 0.0f; // Calibrate home reference
+  // Switch release edge = Calibrated Zero Reference
+  _positionMM = 0.0f;
+
+  // Back off an additional 2.0mm clearance so carriage sits comfortably off switch
+  for (int i = 0; i < (int)(2.0f * STEPS_PER_MM); i++) {
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(1000); // 5 mm/s clearance
+  }
+
+  _positionMM = 0.0f; // Set home position reference in standby
   stopMotor();
   setTMCMode(MODE_STEALTHCHOP);
   return true;
 }
 
 bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)()) {
+  setMotorEnable(true);
   // 1. Move DOWN at downSpeedMMps until capacitive wax sensor triggers
   setTMCMode(MODE_STEALTHCHOP);
   unsigned long startTimeout = millis();
@@ -395,3 +396,4 @@ bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int hol
   stopMotor();
   return true;
 }
+

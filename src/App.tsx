@@ -509,6 +509,7 @@ static inline bool checkTopLimitCleared(SensorManager* sensors) {
 }
 
 bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
+  setMotorEnable(true); // Ensure motor powered
   setTMCMode(MODE_STEALTHCHOP);
   
   unsigned long startTimeout = millis();
@@ -517,7 +518,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
   if (delayUs < 40) delayUs = 40;
 
-  // Stage 1: Fast search UP towards limit switch
+  // Stage 1: Fast Seek UP towards top limit switch
   digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
   delayMicroseconds(50);
 
@@ -540,11 +541,10 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     }
   }
 
-  // Complete mechanical stop & pause to allow carriage inertia to dissipate
   stopMotor();
-  delay(150);
+  delay(100);
 
-  // Stage 2: Back DOWN gently until limit switch clears
+  // Stage 2: Backoff DOWN gently until switch clears
   digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
   delayMicroseconds(50);
 
@@ -563,7 +563,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
     stepsBack++;
   }
 
-  // Extra clearance (1.0mm)
+  // Extra 1.0mm clearance backoff
   for (int i = 0; i < (int)(1.0f * STEPS_PER_MM); i++) {
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
@@ -572,9 +572,9 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   }
 
   stopMotor();
-  delay(150);
+  delay(100);
 
-  // Stage 3: Slow precision approach UP (3 mm/s) for zero contact
+  // Stage 3: Slow precision approach UP (3 mm/s)
   digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
   delayMicroseconds(50);
 
@@ -591,20 +591,36 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
   }
 
   stopMotor();
-  delay(150);
+  delay(100);
 
-  // Stage 4: Back off 1.5mm DOWN to relieve switch tension and position at 0.0mm home
+  // Stage 4 (Standard Practice): Move DOWN slowly (1 mm/s) until switch JUST RELEASES!
   digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
   delayMicroseconds(50);
 
-  for (int i = 0; i < (int)(1.5f * STEPS_PER_MM); i++) {
+  while (_sensors && !checkTopLimitCleared(_sensors)) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
     digitalWrite(PIN_MOTOR_STEP, HIGH);
     delayMicroseconds(3);
     digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(400);
+    delayMicroseconds(5000); // 1 mm/s release creep
   }
 
-  _positionMM = 0.0f; // Calibrate home reference
+  // Switch release edge = Calibrated Zero Reference
+  _positionMM = 0.0f;
+
+  // Back off an additional 2.0mm clearance so carriage sits comfortably off switch
+  for (int i = 0; i < (int)(2.0f * STEPS_PER_MM); i++) {
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(1000); // 5 mm/s clearance
+  }
+
+  _positionMM = 0.0f; // Set home position reference in standby
   stopMotor();
   setTMCMode(MODE_STEALTHCHOP);
   return true;
