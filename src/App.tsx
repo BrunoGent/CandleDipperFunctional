@@ -378,11 +378,45 @@ SensorManager sensorMgr;
 ScaleManager scaleMgr;
 MotorManager motorMgr;
 
+static unsigned long g_actionStartTime = 0;
+
+void markActionStarted() {
+  g_actionStartTime = millis();
+}
+
 bool checkManualStop() {
+  static unsigned long lastCheckTime = 0;
+  unsigned long now = millis();
+  // Throttle check to once every 40ms to keep microsecond stepper pulse timing smooth and jitter-free
+  if (now - lastCheckTime < 40) {
+    return false;
+  }
+  lastCheckTime = now;
+
   M5.update();
+  DisplayData& data = display.getData();
+  data.currentPosition = motorMgr.getCurrentPositionMM();
+  data.currentWeight = scaleMgr.getWeightGrams();
+
+  // Ignore touches for initial 400ms so button press that started action doesn't immediately abort it
+  if (now - g_actionStartTime < 400) {
+    return false;
+  }
+
   if (M5.Touch.getCount() > 0) {
     auto t = M5.Touch.getDetail();
-    if (t.wasPressed() || t.isPressed()) return true;
+    if (t.wasPressed() || t.isPressed()) {
+      data.justStoppedByTouch = true;
+      data.isHomingActive = false;
+      data.isDipBotActive = false;
+      if (data.currentPage == PAGE_ACTIVE_DIP) {
+        data.currentPage = PAGE_STOP_CONFIRM;
+        data.stopConfirmEnterTime = millis();
+      }
+      motorMgr.stopMotor();
+      display.markPageChanged(true);
+      return true; // Screen touched -> Stop motion immediately
+    }
   }
   return false;
 }
@@ -422,6 +456,7 @@ void loop() {
   UiEvent event = display.updateTouch();
   switch (event) {
     case UI_EVENT_MANUAL_HOME:
+      markActionStarted();
       data.isHomingActive = true;
       display.markPageChanged(true);
       display.renderCurrentPage();
@@ -431,6 +466,7 @@ void loop() {
       break;
 
     case UI_EVENT_MANUAL_DIP_BOT:
+      markActionStarted();
       data.isDipBotActive = true;
       display.markPageChanged(true);
       display.renderCurrentPage();
@@ -454,8 +490,128 @@ void loop() {
   display.renderCurrentPage();
 }`;
 
+const MOTOR_MANAGER_CPP_CODE = `// Excerpt from MotorManager.cpp (Homing & Motion routines)
+#include "MotorManager.h"
+
+// Fast Sensor Helpers for Homing
+static inline bool checkTopLimitFast(SensorManager* sensors) {
+  if (!sensors) return false;
+  if (!sensors->readRawTopLimit()) return false;
+  delayMicroseconds(2);
+  return sensors->readRawTopLimit();
+}
+
+static inline bool checkTopLimitCleared(SensorManager* sensors) {
+  if (!sensors) return true;
+  if (sensors->readRawTopLimit()) return false;
+  delayMicroseconds(2);
+  return !sensors->readRawTopLimit();
+}
+
+bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
+  setTMCMode(MODE_STEALTHCHOP);
+  
+  unsigned long startTimeout = millis();
+  float stepsPerSec = speedMMps * STEPS_PER_MM;
+  if (stepsPerSec <= 0.0f) stepsPerSec = 40.0f * STEPS_PER_MM;
+  unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
+  if (delayUs < 40) delayUs = 40;
+
+  // Stage 1: Fast search UP towards limit switch
+  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
+  delayMicroseconds(50);
+
+  while (_sensors && !checkTopLimitFast(_sensors)) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
+
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(delayUs);
+
+    if (millis() - startTimeout > 15000) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
+  }
+
+  // Complete mechanical stop & pause to allow carriage inertia to dissipate
+  stopMotor();
+  delay(150);
+
+  // Stage 2: Back DOWN gently until limit switch clears
+  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
+  delayMicroseconds(50);
+
+  int maxBackoffSteps = (int)(10.0f * STEPS_PER_MM); // up to 10mm backoff
+  int stepsBack = 0;
+  while (_sensors && !checkTopLimitCleared(_sensors) && stepsBack < maxBackoffSteps) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(400); // 12.5 mm/s gentle backoff
+    stepsBack++;
+  }
+
+  // Extra clearance (1.0mm)
+  for (int i = 0; i < (int)(1.0f * STEPS_PER_MM); i++) {
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(400);
+  }
+
+  stopMotor();
+  delay(150);
+
+  // Stage 3: Slow precision approach UP (3 mm/s) for zero contact
+  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
+  delayMicroseconds(50);
+
+  while (_sensors && !checkTopLimitFast(_sensors)) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      setTMCMode(MODE_STEALTHCHOP);
+      return false;
+    }
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(1666); // 3 mm/s precision approach
+  }
+
+  stopMotor();
+  delay(150);
+
+  // Stage 4: Back off 1.5mm DOWN to relieve switch tension and position at 0.0mm home
+  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
+  delayMicroseconds(50);
+
+  for (int i = 0; i < (int)(1.5f * STEPS_PER_MM); i++) {
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(400);
+  }
+
+  _positionMM = 0.0f; // Calibrate home reference
+  stopMotor();
+  setTMCMode(MODE_STEALTHCHOP);
+  return true;
+}`;
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'preview' | 'main' | 'motor' | 'scale' | 'sensor' | 'header' | 'cpp' | 'pinconfig' | 'architecture'>('preview');
+  const [activeTab, setActiveTab] = useState<'preview' | 'main' | 'motor' | 'motorcpp' | 'scale' | 'sensor' | 'header' | 'cpp' | 'pinconfig' | 'architecture'>('preview');
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
 
   // M5Stack CoreS3 SE Interactive State
@@ -641,7 +797,18 @@ export default function App() {
             }`}
           >
             <Cpu className="w-3.5 h-3.5" />
-            MotorManager
+            MotorManager.h
+          </button>
+          <button
+            onClick={() => setActiveTab('motorcpp')}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+              activeTab === 'motorcpp' 
+                ? 'bg-amber-400 text-neutral-950 shadow' 
+                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            MotorManager.cpp
           </button>
           <button
             onClick={() => setActiveTab('scale')}
@@ -1270,6 +1437,27 @@ export default function App() {
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
               {MOTOR_MANAGER_H_CODE}
+            </pre>
+          </div>
+        )}
+
+        {activeTab === 'motorcpp' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/MotorManager.cpp</span>
+              </div>
+              <button
+                onClick={() => copyCode(MOTOR_MANAGER_CPP_CODE, 'motorcpp')}
+                className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
+              >
+                {copiedFile === 'motorcpp' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedFile === 'motorcpp' ? 'Copied MotorManager.cpp!' : 'Copy MotorManager.cpp'}
+              </button>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
+              {MOTOR_MANAGER_CPP_CODE}
             </pre>
           </div>
         )}
