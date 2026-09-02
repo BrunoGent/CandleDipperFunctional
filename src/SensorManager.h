@@ -23,7 +23,7 @@ class SensorManager {
 public:
   SensorManager();
 
-  void begin();
+  void begin(bool useInternalPullupForWaxSensor = false);
   void update(); // Non-blocking periodic debouncer
 
   // Switch & Sensor Status Readers (Debounced)

@@ -347,7 +347,7 @@ const SENSOR_MANAGER_H_CODE = `#ifndef SENSOR_MANAGER_H
 class SensorManager {
 public:
   SensorManager();
-  void begin();
+  void begin(bool useInternalPullupForWaxSensor = false);
   void update();
 
   bool isTopLimitHit() const { return _topLimitHit; }

@@ -3,12 +3,18 @@
 SensorManager::SensorManager() 
   : _topLimitHit(false), _capSensorTriggered(false), _capActiveLow(true), _lastDebounceTime(0) {}
 
-void SensorManager::begin() {
-  // Mechanical top switch configured with internal pull-up
+void SensorManager::begin(bool useInternalPullupForWaxSensor) {
+  // Mechanical top switch configured with internal pull-up (NC to GND)
   pinMode(PIN_TOP_LIMIT_SW, INPUT_PULLUP);
   
-  // Capacitive wax sensor (via 24V -> 3.3V Optocoupler)
-  pinMode(PIN_WAX_LEVEL_SENS, INPUT_PULLUP);
+  // Capacitive wax sensor (via 24V -> 3.3V Optocoupler):
+  // Since a physical 10k pull-up resistor is fitted on the circuit board,
+  // we set pure INPUT (High-Z) so the internal 45k pull-up does not fight the optocoupler.
+  if (useInternalPullupForWaxSensor) {
+    pinMode(PIN_WAX_LEVEL_SENS, INPUT_PULLUP);
+  } else {
+    pinMode(PIN_WAX_LEVEL_SENS, INPUT);
+  }
   
   update();
 }
