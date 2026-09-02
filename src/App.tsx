@@ -339,6 +339,11 @@ const SENSOR_MANAGER_H_CODE = `#ifndef SENSOR_MANAGER_H
 #include <Arduino.h>
 #include "PinConfig.h"
 
+/**
+ * SensorManager: Glitch-filtered limit and wax detection
+ * - Top Limit Switch: NC to GND, Pin 7 (HIGH when open/hit)
+ * - Wax Capacitive Sensor: 24V NPN Optocoupler, Pin 6 (LOW when wax detected)
+ */
 class SensorManager {
 public:
   SensorManager();
@@ -348,16 +353,21 @@ public:
   bool isTopLimitHit() const { return _topLimitHit; }
   bool isCapSensorTriggered() const { return _capSensorTriggered; }
 
-  bool readRawTopLimit(); // Returns HIGH when NC mechanical switch is pressed
+  bool readRawTopLimit();
   bool readRawCapSensor();
+
+  void setCapSensorActiveLow(bool activeLow) { _capActiveLow = activeLow; }
+  bool isCapSensorActiveLow() const { return _capActiveLow; }
 
 private:
   bool _topLimitHit;
   bool _capSensorTriggered;
+  bool _capActiveLow;
   unsigned long _lastDebounceTime;
 };
 
 #endif // SENSOR_MANAGER_H`;
+
 
 const MAIN_CPP_CODE = `#include <M5Unified.h>
 #include <Preferences.h>
@@ -1610,18 +1620,20 @@ export default function App() {
 
               <div className="bg-neutral-950 border border-emerald-900/30 rounded-xl p-5">
                 <h3 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2">
-                  <span>✅ After: Object-Oriented DisplayManager</span>
+                  <span>✅ Decoupled Modular Architecture</span>
                 </h3>
                 <ul className="text-xs text-neutral-400 space-y-2 list-disc list-inside">
-                  <li>Encapsulated <code className="text-emerald-300 font-mono">M5Canvas</code> instance inside <code className="text-emerald-300 font-mono">DisplayManager</code>.</li>
-                  <li>Exposes clean methods: <code className="text-emerald-300 font-mono">display.updateTouch()</code> and <code className="text-emerald-300 font-mono">display.renderCurrentPage()</code>.</li>
-                  <li>Touch actions return decoupled <code className="text-emerald-300 font-mono">UiEvent</code> codes for non-blocking main loop execution.</li>
-                  <li>Ready for safe STEP 2 hardware integration (TMC2209 stepper driver & HX711 scale).</li>
+                  <li><strong className="text-white">MotorManager:</strong> Trinamic TMC2209 single-wire UART configuration with StealthChop2 / SpreadCycle mode switching, 4-stage homing calibration, and lead-screw motion.</li>
+                  <li><strong className="text-white">SensorManager:</strong> Glitch-filtered debouncing for Top Limit Switch (NC) and Capacitive Wax Level Sensor (24V NPN optocoupler).</li>
+                  <li><strong className="text-white">ScaleManager:</strong> HX711 24-bit strain-gauge ADC polling with Exponential Moving Average (EMA) filtering and tare/calibration persistence.</li>
+                  <li><strong className="text-white">DisplayManager:</strong> Double-buffered M5Canvas graphics pipeline with multi-theme support and decoupled touch hit-testing.</li>
+                  <li><strong className="text-white">main.cpp:</strong> Clean non-blocking state machine coordinating dipping cycles, soft limits, and Wi-Fi captive portal.</li>
                 </ul>
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );

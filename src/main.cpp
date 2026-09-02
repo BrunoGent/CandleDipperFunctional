@@ -1,3 +1,25 @@
+/**
+ * ============================================================================
+ * BEE MINE CANDLE DIPPER - MAIN FIRMWARE
+ * ============================================================================
+ * Platform: M5Stack CoreS3 / Core2 (ESP32-S3 / ESP32)
+ * Framework: Arduino / M5Unified
+ * 
+ * Hardware Subsystems:
+ * 1. DisplayManager: 320x240 M5Canvas double-buffered UI, multi-theme engine,
+ *    live telemetry dashboards, settings hub, and active dipping animation.
+ * 2. MotorManager: Trinamic TMC2209 silent stepper driver over single-wire UART,
+ *    supporting dynamic StealthChop2 / SpreadCycle mode switching, 4-stage
+ *    homing calibration, and lead-screw motion.
+ * 3. SensorManager: Optical / mechanical top limit switch (NC to GND) and
+ *    24V NPN optocoupled capacitive wax surface level detector.
+ * 4. ScaleManager: HX711 24-bit strain-gauge load cell ADC with 10Hz non-blocking
+ *    readings, exponential moving average (EMA) filter, tare, and calibration.
+ * 5. Wi-Fi Web Portal: SoftAP captive portal for headless Wi-Fi configuration and
+ *    NTP time synchronization.
+ * ============================================================================
+ */
+
 #include <M5Unified.h>
 #include <Preferences.h>
 #include <WiFi.h>
@@ -10,6 +32,7 @@
 #include "SensorManager.h"
 #include "ScaleManager.h"
 #include "MotorManager.h"
+
 
 // --- Global Managers & Objects ---
 DisplayManager display;
@@ -369,7 +392,7 @@ void processActiveDipping() {
       unsigned long startTimeout = millis();
       float stepDistMM = 1.0f / MotorManager::STEPS_PER_MM;
 
-      while (!sensorMgr.readRawTopLimit() && data.currentPosition > 0.0f) {
+      while (!sensorMgr.readRawTopLimit()) {
         if (checkManualStop()) {
           motorMgr.stopMotor();
           return;
@@ -388,12 +411,10 @@ void processActiveDipping() {
         if (millis() - startTimeout > 35000) break; // Timeout guard
       }
 
-      if (sensorMgr.readRawTopLimit()) {
-        data.currentPosition = 0.0f;
-        motorMgr.setCurrentPositionMM(0.0f);
-      }
-
+      data.currentPosition = 0.0f;
+      motorMgr.setCurrentPositionMM(0.0f);
       motorMgr.stopMotor();
+
 
       // Dwell time before scale reading
       if (data.s_weightDwell > 0) {

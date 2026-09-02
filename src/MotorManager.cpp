@@ -193,13 +193,13 @@ void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t bu
       lastSensorCheck = millis();
       if (_sensors) {
         if (directionUp) {
-          if ((_sensors && _sensors->readRawTopLimit()) || _positionMM <= 0.0f) {
-            if (_sensors && _sensors->readRawTopLimit()) _positionMM = 0.0f;
+          if (_sensors->readRawTopLimit()) {
+            _positionMM = 0.0f;
             stopMotor();
             break;
           }
         } else {
-          if ((_sensors && _sensors->readRawCapSensor()) || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
+          if (_sensors->readRawCapSensor() || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
             stopMotor();
             break;
           }
@@ -359,6 +359,7 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
 
 bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)()) {
   setMotorEnable(true);
+  
   // 1. Move DOWN at downSpeedMMps until capacitive wax sensor triggers
   setTMCMode(MODE_STEALTHCHOP);
   unsigned long startTimeout = millis();
@@ -368,8 +369,10 @@ bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int hol
       return false;
     }
     stepMotorBurst(false, downSpeedMMps, 15);
-    if (millis() - startTimeout > 25000) break; // Timeout guard
+    if (millis() - startTimeout > 35000) break; // Timeout guard
   }
+
+  stopMotor();
 
   // 2. Hold in wax for holdTimeSec
   if (holdTimeSec > 0) {
@@ -383,17 +386,31 @@ bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int hol
     }
   }
 
-  // 3. Move back UP to 0mm home at upSpeedMMps
-  while (_positionMM > 0.0f && (_sensors && !_sensors->readRawTopLimit())) {
+  // 3. Move back UP to top limit switch at upSpeedMMps
+  unsigned long upStartTimeout = millis();
+  while (_sensors && !_sensors->readRawTopLimit()) {
     if (stopCheck && stopCheck()) {
       stopMotor();
       return false;
     }
     stepMotorBurst(true, upSpeedMMps, 15);
+    if (millis() - upStartTimeout > 35000) break;
+  }
+
+  // Relieve switch pressure with gentle 2mm clearance backoff
+  _positionMM = 0.0f;
+  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
+  delayMicroseconds(50);
+  for (int i = 0; i < (int)(2.0f * STEPS_PER_MM); i++) {
+    digitalWrite(PIN_MOTOR_STEP, HIGH);
+    delayMicroseconds(3);
+    digitalWrite(PIN_MOTOR_STEP, LOW);
+    delayMicroseconds(1000);
   }
 
   _positionMM = 0.0f;
   stopMotor();
   return true;
 }
+
 
