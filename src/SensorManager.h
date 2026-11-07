@@ -23,14 +23,17 @@ class SensorManager {
 public:
   SensorManager();
 
+  // Configures GPIO pin modes for the top limit switch and wax capacitive sensor
   void begin(bool useInternalPullupForWaxSensor = false);
+
+  // Non-blocking periodic debouncer (polls sensors every 10ms for UI status indicators)
   void update(); // Non-blocking periodic debouncer
 
-  // Switch & Sensor Status Readers (Debounced)
+  // Switch & Sensor Status Readers (Debounced values cached by update() for UI display)
   bool isTopLimitHit() const { return _topLimitHit; }
   bool isCapSensorTriggered() const { return _capSensorTriggered; }
 
-  // Direct Pin Read Helpers (With Hardware Glitch Filtering)
+  // Direct Pin Read Helpers (With 3-sample Hardware Glitch Filtering for real-time motor loops)
   bool readRawTopLimit();
   bool readRawCapSensor();
 
@@ -39,10 +42,10 @@ public:
   bool isCapSensorActiveLow() const { return _capActiveLow; }
 
 private:
-  bool _topLimitHit;
-  bool _capSensorTriggered;
-  bool _capActiveLow; // Standard NPN optocoupler pulls LOW when triggered
-  unsigned long _lastDebounceTime;
+  bool _topLimitHit;              // Cached debounced state of the top limit switch
+  bool _capSensorTriggered;       // Cached debounced state of the capacitive wax sensor
+  bool _capActiveLow;             // Polarity flag: standard NPN optocoupler pulls pin LOW when triggered
+  unsigned long _lastDebounceTime;// Timestamp (ms) of the last periodic update() poll
 };
 
 #endif // SENSOR_MANAGER_H

@@ -36,631 +36,15 @@ import scaleManagerHRaw from './ScaleManager.h?raw';
 import scaleManagerCppRaw from './ScaleManager.cpp?raw';
 import sensorManagerHRaw from './SensorManager.h?raw';
 import sensorManagerCppRaw from './SensorManager.cpp?raw';
+import soundManagerHRaw from './SoundManager.h?raw';
+import soundManagerCppRaw from './SoundManager.cpp?raw';
 import platformioIniRaw from '../platformio.ini?raw';
 import readmeRaw from '../README.md?raw';
 import handoverMdRaw from '../PROJECT_HANDOVER.md?raw';
-
-const DISPLAY_MANAGER_H_CODE = `#ifndef DISPLAY_MANAGER_H
-#define DISPLAY_MANAGER_H
-
-#include <M5Unified.h>
-
-// --- Application States ---
-enum AppState {
-  PAGE_WEIGHT_DIP,
-  PAGE_DIPS_DIP,
-  PAGE_MANUAL,
-  PAGE_SETTINGS_HUB,  
-  PAGE_SETTING_DIPPING,
-  PAGE_SETTING_MOTION,
-  PAGE_SETTING_SENSOR,
-  PAGE_SETTING_SCREEN,
-  PAGE_WIFI_PORTAL,
-  PAGE_ACTIVE_DIP,
-  PAGE_STOP_CONFIRM,
-  PAGE_DIP_DONE
-};
-
-enum SubState {
-  SUB_MAIN,
-  SUB_CONFIRM_SLIM,
-  SUB_CONFIRM_STD
-};
-
-// --- Action Events Triggered by UI Touch Interactions ---
-enum UiEvent {
-  UI_EVENT_NONE,
-  UI_EVENT_START_DIP,
-  UI_EVENT_ABORT_DIP,
-  UI_EVENT_FINISH_DIP,
-  UI_EVENT_START_WIFI_PORTAL,
-  UI_EVENT_STOP_WIFI_PORTAL,
-  UI_EVENT_SETTING_UPDATED,
-  UI_EVENT_THEME_CHANGED,
-  UI_EVENT_BRIGHTNESS_CHANGED,
-  UI_EVENT_MANUAL_TARE
-};
-
-// --- Display Data Container ---
-struct DisplayData {
-  // Navigation & Page State
-  AppState currentPage = PAGE_WEIGHT_DIP;
-  SubState currentSubState = SUB_MAIN;
-  bool pageChanged = true;
-
-  // Manual Control State
-  bool limitSwitchOn = false;
-  bool capSensorOn = false;
-  bool isUpPressed = false;     
-  bool isDownPressed = false;   
-  int manualSpeed = 50;
-  float currentPosition = 0.0;
-  float currentWeight = 0.0;
-
-  // Settings Configuration Values
-  int s_slimWt = 1500;
-  int s_stdWt = 2500;
-  int s_slimDips = 15;
-  int s_stdDips = 25;
-  int s_dip1Time = 10;
-  int s_subDipTime = 4;
-  int s_downSpeed = 50;
-  int s_upSpeed = 60;
-  int s_colLimit = -50;
-  int s_brightness = 50; // 1 to 99%
-  int s_theme = 1;       // 0: Original, 1: Bee Mine, 2: Dark Mode
-
-  // Numpad Editor State
-  bool showNumpad = false;
-  int activeSetting = -1;
-  String numpadStr = "";
-
-  // Active Dipping State
-  unsigned long dipStartTime = 0;
-  unsigned long lastUiTick = 0;
-  int estimatedTotalSeconds = 0;
-  bool isActiveWeightBased = true;
-  bool isActiveSlimProfile = true;
-  bool dipWasAborted = false;
-  int currentDipCount = 0;
-  String currentPhaseText = "Starting...";
-
-  // Network & Portal State
-  String wifiSSID = "Trooli_BB00";
-  bool portalActive = false;
-};
-
-class DisplayManager {
-public:
-  DisplayManager();
-
-  // Initialization & Setup
-  bool begin(M5GFX* display = &M5.Display);
-
-  // Theme & Screen Control
-  void applyTheme(int themeId);
-  void setBrightness(int percent);
-
-  // Core Render & Touch Execution
-  void renderCurrentPage();
-  UiEvent updateTouch();
-
-  // Process Controls
-  void startDippingProcess(bool isWeight, bool isSlim);
-  void endDippingProcess(bool aborted);
-
-  // Data Accessors & Mutators
-  DisplayData& getData() { return data; }
-  const DisplayData& getData() const { return data; }
-
-  AppState getCurrentPage() const { return data.currentPage; }
-  void setCurrentPage(AppState page) { data.currentPage = page; data.pageChanged = true; }
-
-  SubState getSubState() const { return data.currentSubState; }
-  void setSubState(SubState sub) { data.currentSubState = sub; data.pageChanged = true; }
-
-  bool isPageChanged() const { return data.pageChanged; }
-  void markPageChanged(bool changed = true) { data.pageChanged = changed; }
-
-  int getSettingValue(int index) const;
-  void setSettingValue(int index, int val);
-
-private:
-  M5GFX* _display;
-  M5Canvas canvas;
-  DisplayData data;
-
-  // Theme Colors
-  uint16_t c_bg;
-  uint16_t c_banner;
-  uint16_t c_bannerTxt;
-  uint16_t c_btn1;
-  uint16_t c_btn2;
-  uint16_t c_btnTxt;
-  uint16_t c_active;
-  uint16_t c_outline;
-
-  // Internal Drawing Helpers
-  void drawTopBanner();
-  void drawBottomBanner();
-  void drawButton(int x, int y, int w, int h, const char* label, uint32_t color, uint32_t txtColor);
-
-  void drawPage1_2();
-  void drawManualPage();
-  void drawSettingsHub();
-  void drawSettingsList(int startIndex, int count);
-  void drawScreenDashboard();
-  void drawWifiPortalPage();
-  void drawNumpad();
-  void drawActiveDipPage();
-  void drawStopConfirmPage();
-  void drawDipDonePage();
-
-  // Text & Label Utilities
-  const char* getPageTitle() const;
-  void formatTime(int totalSeconds, char* buffer, int bufferSize) const;
-};
-
-#endif // DISPLAY_MANAGER_H`;
-
-const DISPLAY_MANAGER_CPP_HIGHLIGHT = `// Excerpt from DisplayManager.cpp
-#include "DisplayManager.h"
-
-DisplayManager::DisplayManager() : _display(&M5.Display), canvas(&M5.Display) {}
-
-bool DisplayManager::begin(M5GFX* display) {
-  if (display) _display = display;
-  if (!canvas.createSprite(_display->width(), _display->height())) return false;
-  _display->setBrightness(map(data.s_brightness, 1, 99, 10, 255));
-  applyTheme(data.s_theme);
-  data.pageChanged = true;
-  return true;
-}
-
-void DisplayManager::applyTheme(int themeId) {
-  data.s_theme = themeId;
-  if (data.s_theme == 0) { // Original
-    c_bg = TFT_BLACK; c_banner = TFT_DARKCYAN; c_bannerTxt = TFT_WHITE;
-    c_btn1 = TFT_NAVY; c_btn2 = TFT_MAROON; c_btnTxt = TFT_WHITE;
-    c_active = TFT_DARKGREEN; c_outline = TFT_DARKGREY;
-  } else if (data.s_theme == 1) { // Bee Mine Pastel
-    c_bg = canvas.color565(35, 35, 35);
-    c_banner = canvas.color565(255, 235, 130); c_bannerTxt = TFT_BLACK;
-    c_btn1 = canvas.color565(255, 235, 130); c_btn2 = canvas.color565(140, 210, 180);
-    c_btnTxt = TFT_BLACK; c_active = canvas.color565(130, 230, 130); c_outline = canvas.color565(80, 80, 80);
-  } else { // Dark Mode
-    c_bg = TFT_BLACK; c_banner = canvas.color565(40, 40, 40); c_bannerTxt = TFT_LIGHTGREY;
-    c_btn1 = canvas.color565(60, 60, 60); c_btn2 = canvas.color565(60, 60, 60); c_btnTxt = TFT_WHITE;
-    c_active = canvas.color565(80, 160, 80); c_outline = canvas.color565(100, 100, 100);
-  }
-}
-
-void DisplayManager::renderCurrentPage() {
-  if (!data.pageChanged) return;
-  switch (data.currentPage) {
-    case PAGE_WEIGHT_DIP: case PAGE_DIPS_DIP: drawPage1_2(); break;
-    case PAGE_MANUAL: drawManualPage(); break;
-    case PAGE_SETTINGS_HUB: drawSettingsHub(); break;
-    case PAGE_SETTING_DIPPING: if (data.showNumpad) drawNumpad(); else drawSettingsList(0, 4); break;
-    case PAGE_SETTING_MOTION:  if (data.showNumpad) drawNumpad(); else drawSettingsList(4, 4); break;
-    case PAGE_SETTING_SENSOR:  if (data.showNumpad) drawNumpad(); else drawSettingsList(8, 1); break;
-    case PAGE_SETTING_SCREEN:  drawScreenDashboard(); break;
-    case PAGE_WIFI_PORTAL:     drawWifiPortalPage(); break;
-    case PAGE_ACTIVE_DIP:      drawActiveDipPage(); break;
-    case PAGE_STOP_CONFIRM:    drawStopConfirmPage(); break;
-    case PAGE_DIP_DONE:        drawDipDonePage(); break;
-  }
-  canvas.pushSprite(0, 0);
-  data.pageChanged = false;
-}`;
-
-const PIN_CONFIG_H_CODE = `#ifndef PIN_CONFIG_H
-#define PIN_CONFIG_H
-
-// =========================================================
-// BEE MINE CANDLE DIPPER - HARDWARE PIN DEFINITIONS
-// All connections routed via M5Stack Proto Module (M-Bus)
-// =========================================================
-
-// --- TMC2209 Stepper Driver ---
-#define PIN_MOTOR_STEP        8   // Hardware PWM pulse line
-#define PIN_MOTOR_DIR         9   // Motor rotation direction
-#define PIN_MOTOR_ENABLE     17   // Active LOW enable line
-#define PIN_MOTOR_UART       18   // Single-Wire UART (1k Ohm inline resistor)
-
-// --- Frame & Arm Sensors ---
-#define PIN_TOP_LIMIT_SW      7   // Mechanical home switch (NC config)
-#define PIN_WAX_LEVEL_SENS    6   // Arm Capacitive sensor (via 24V -> 3.3V Optocoupler)
-
-// --- HX711 Load Cell Amplifier (Drag Chain) ---
-#define PIN_HX711_DT          5   // Scale Serial Data line
-#define PIN_HX711_SCK        13   // Scale Serial Clock line
-
-#endif // PIN_CONFIG_H`;
-
-const MOTOR_MANAGER_H_CODE = `#ifndef MOTOR_MANAGER_H
-#define MOTOR_MANAGER_H
-
-#include <Arduino.h>
-#include "PinConfig.h"
-#include "SensorManager.h"
-
-enum TMCMode {
-  MODE_STEALTHCHOP = 0, // Silent operation for low/medium speed
-  MODE_SPREADCYCLE = 1  // High torque / rapid travel
-};
-
-class MotorManager {
-public:
-  MotorManager();
-  void begin(SensorManager* sensorMgr);
-  
-  void stepMotor(bool directionUp, float speedMMps);
-  void stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs = 20);
-  void stopMotor();
-
-  void setTMCMode(TMCMode mode);
-  TMCMode getTMCMode() const { return _currentMode; }
-
-  bool performHoming(float speedMMps, bool (*stopCheck)() = nullptr);
-  bool performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)() = nullptr);
-
-  float getCurrentPositionMM() const { return _positionMM; }
-  void setCurrentPositionMM(float pos) { _positionMM = pos; }
-
-  static const float STEPS_PER_MM;
-private:
-  SensorManager* _sensors;
-  TMCMode _currentMode;
-  bool _enabled;
-  float _positionMM;
-  unsigned long _lastStepMicros;
-
-  void sendUARTCommand(uint8_t reg, uint32_t val);
-};
-
-#endif // MOTOR_MANAGER_H`;
-
-const SCALE_MANAGER_H_CODE = `#ifndef SCALE_MANAGER_H
-#define SCALE_MANAGER_H
-
-#include <Arduino.h>
-#include <Preferences.h>
-#include "PinConfig.h"
-
-class ScaleManager {
-public:
-  ScaleManager();
-  void begin(Preferences* prefs = nullptr);
-  void update();
-
-  void tare(uint8_t samples = 10);
-  void calibrate(float knownWeightGrams, uint8_t samples = 10);
-
-  float getWeightGrams() const { return _currentWeightGrams; }
-  long getRawValue() const { return _rawReadout; }
-  void setScaleFactor(float factor);
-  float getScaleFactor() const { return _scaleFactor; }
-  long getZeroOffset() const { return _zeroOffset; }
-
-  long readRawBitbang();
-
-private:
-  Preferences* _prefs;
-  long _zeroOffset;
-  float _scaleFactor;
-  float _currentWeightGrams;
-  long _rawReadout;
-  unsigned long _lastPollMs;
-};
-
-#endif // SCALE_MANAGER_H`;
-
-const SENSOR_MANAGER_H_CODE = `#ifndef SENSOR_MANAGER_H
-#define SENSOR_MANAGER_H
-
-#include <Arduino.h>
-#include "PinConfig.h"
-
-/**
- * SensorManager: Glitch-filtered limit and wax detection
- * - Top Limit Switch: NC to GND, Pin 7 (HIGH when open/hit)
- * - Wax Capacitive Sensor: 24V NPN Optocoupler, Pin 6 (LOW when wax detected)
- */
-class SensorManager {
-public:
-  SensorManager();
-  void begin(bool useInternalPullupForWaxSensor = false);
-  void update();
-
-  bool isTopLimitHit() const { return _topLimitHit; }
-  bool isCapSensorTriggered() const { return _capSensorTriggered; }
-
-  bool readRawTopLimit();
-  bool readRawCapSensor();
-
-  void setCapSensorActiveLow(bool activeLow) { _capActiveLow = activeLow; }
-  bool isCapSensorActiveLow() const { return _capActiveLow; }
-
-private:
-  bool _topLimitHit;
-  bool _capSensorTriggered;
-  bool _capActiveLow;
-  unsigned long _lastDebounceTime;
-};
-
-#endif // SENSOR_MANAGER_H`;
-
-
-const MAIN_CPP_CODE = `#include <M5Unified.h>
-#include <Preferences.h>
-#include <WiFi.h>
-#include <WebServer.h>
-#include <DNSServer.h>
-#include <time.h>
-
-#include "DisplayManager.h"
-#include "PinConfig.h"
-#include "SensorManager.h"
-#include "ScaleManager.h"
-#include "MotorManager.h"
-
-DisplayManager display;
-Preferences prefs;
-SensorManager sensorMgr;
-ScaleManager scaleMgr;
-MotorManager motorMgr;
-
-static unsigned long g_actionStartTime = 0;
-
-void markActionStarted() {
-  g_actionStartTime = millis();
-}
-
-bool checkManualStop() {
-  static unsigned long lastCheckTime = 0;
-  unsigned long now = millis();
-  // Throttle check to once every 40ms to keep microsecond stepper pulse timing smooth and jitter-free
-  if (now - lastCheckTime < 40) {
-    return false;
-  }
-  lastCheckTime = now;
-
-  M5.update();
-  DisplayData& data = display.getData();
-  data.currentPosition = motorMgr.getCurrentPositionMM();
-  data.currentWeight = scaleMgr.getWeightGrams();
-
-  // Ignore touches for initial 400ms so button press that started action doesn't immediately abort it
-  if (now - g_actionStartTime < 400) {
-    return false;
-  }
-
-  if (M5.Touch.getCount() > 0) {
-    auto t = M5.Touch.getDetail();
-    if (t.wasPressed() || t.isPressed()) {
-      data.justStoppedByTouch = true;
-      data.isHomingActive = false;
-      data.isDipBotActive = false;
-      if (data.currentPage == PAGE_ACTIVE_DIP) {
-        data.currentPage = PAGE_STOP_CONFIRM;
-        data.stopConfirmEnterTime = millis();
-      }
-      motorMgr.stopMotor();
-      display.markPageChanged(true);
-      return true; // Screen touched -> Stop motion immediately
-    }
-  }
-  return false;
-}
-
-void setup() {
-  auto cfg = M5.config();
-  M5.begin(cfg);
-  
-  sensorMgr.begin();
-  scaleMgr.begin(&prefs);
-  motorMgr.begin(&sensorMgr);
-  display.begin(&M5.Display);
-}
-
-void loop() {
-  M5.update();
-  DisplayData& data = display.getData();
-
-  sensorMgr.update();
-  scaleMgr.update();
-
-  data.currentPosition = motorMgr.getCurrentPositionMM();
-  data.currentWeight = scaleMgr.getWeightGrams();
-  data.limitSwitchOn = sensorMgr.isTopLimitHit();
-  data.capSensorOn = sensorMgr.isCapSensorTriggered();
-
-  if (data.currentPage == PAGE_MANUAL) {
-    if (data.isUpPressed) {
-      motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 15);
-    } else if (data.isDownPressed) {
-      motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 15);
-    } else {
-      motorMgr.stopMotor();
-    }
-  }
-
-  UiEvent event = display.updateTouch();
-  switch (event) {
-    case UI_EVENT_MANUAL_HOME:
-      markActionStarted();
-      data.isHomingActive = true;
-      display.markPageChanged(true);
-      display.renderCurrentPage();
-      motorMgr.performHoming((float)data.s_upSpeed, checkManualStop);
-      data.isHomingActive = false;
-      display.markPageChanged(true);
-      break;
-
-    case UI_EVENT_MANUAL_DIP_BOT:
-      markActionStarted();
-      data.isDipBotActive = true;
-      display.markPageChanged(true);
-      display.renderCurrentPage();
-      motorMgr.performDipBot((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_subDipTime, checkManualStop);
-      data.isDipBotActive = false;
-      display.markPageChanged(true);
-      break;
-
-    case UI_EVENT_MANUAL_STOP:
-      motorMgr.stopMotor();
-      data.isHomingActive = false;
-      data.isDipBotActive = false;
-      display.markPageChanged(true);
-      break;
-
-    case UI_EVENT_MANUAL_TARE:
-      scaleMgr.tare(10);
-      break;
-  }
-
-  display.renderCurrentPage();
-}`;
-
-const MOTOR_MANAGER_CPP_CODE = `// Excerpt from MotorManager.cpp (Homing & Motion routines)
-#include "MotorManager.h"
-
-// Fast Sensor Helpers for Homing
-static inline bool checkTopLimitFast(SensorManager* sensors) {
-  if (!sensors) return false;
-  if (!sensors->readRawTopLimit()) return false;
-  delayMicroseconds(2);
-  return sensors->readRawTopLimit();
-}
-
-static inline bool checkTopLimitCleared(SensorManager* sensors) {
-  if (!sensors) return true;
-  if (sensors->readRawTopLimit()) return false;
-  delayMicroseconds(2);
-  return !sensors->readRawTopLimit();
-}
-
-bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
-  setMotorEnable(true); // Ensure motor powered
-  setTMCMode(MODE_STEALTHCHOP);
-  
-  unsigned long startTimeout = millis();
-  float stepsPerSec = speedMMps * STEPS_PER_MM;
-  if (stepsPerSec <= 0.0f) stepsPerSec = 40.0f * STEPS_PER_MM;
-  unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
-  if (delayUs < 40) delayUs = 40;
-
-  // Stage 1: Fast Seek UP towards top limit switch
-  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(50);
-
-  while (_sensors && !checkTopLimitFast(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
-
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(delayUs);
-
-    if (millis() - startTimeout > 15000) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
-  }
-
-  stopMotor();
-  delay(100);
-
-  // Stage 2: Backoff DOWN gently until switch clears
-  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(50);
-
-  int maxBackoffSteps = (int)(10.0f * STEPS_PER_MM); // up to 10mm backoff
-  int stepsBack = 0;
-  while (_sensors && !checkTopLimitCleared(_sensors) && stepsBack < maxBackoffSteps) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(400); // 12.5 mm/s gentle backoff
-    stepsBack++;
-  }
-
-  // Extra 1.0mm clearance backoff
-  for (int i = 0; i < (int)(1.0f * STEPS_PER_MM); i++) {
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(400);
-  }
-
-  stopMotor();
-  delay(100);
-
-  // Stage 3: Slow precision approach UP (3 mm/s)
-  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(50);
-
-  while (_sensors && !checkTopLimitFast(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(1666); // 3 mm/s precision approach
-  }
-
-  stopMotor();
-  delay(100);
-
-  // Stage 4 (Standard Practice): Move DOWN slowly (1 mm/s) until switch JUST RELEASES!
-  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(50);
-
-  while (_sensors && !checkTopLimitCleared(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      setTMCMode(MODE_STEALTHCHOP);
-      return false;
-    }
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(5000); // 1 mm/s release creep
-  }
-
-  // Switch release edge = Calibrated Zero Reference
-  _positionMM = 0.0f;
-
-  // Back off an additional 2.0mm clearance so carriage sits comfortably off switch
-  for (int i = 0; i < (int)(2.0f * STEPS_PER_MM); i++) {
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(1000); // 5 mm/s clearance
-  }
-
-  _positionMM = 0.0f; // Set home position reference in standby
-  stopMotor();
-  setTMCMode(MODE_STEALTHCHOP);
-  return true;
-}`;
+import userManualRaw from '../USER_MANUAL.md?raw';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'export' | 'preview' | 'main' | 'motor' | 'motorcpp' | 'scale' | 'sensor' | 'sensorcpp' | 'header' | 'cpp' | 'pinconfig' | 'platformio' | 'readme' | 'architecture'>('export');
+  const [activeTab, setActiveTab] = useState<'export' | 'preview' | 'manual' | 'main' | 'motor' | 'motorcpp' | 'scale' | 'scalecpp' | 'sensor' | 'sensorcpp' | 'sound' | 'soundcpp' | 'header' | 'cpp' | 'pinconfig' | 'platformio' | 'readme' | 'architecture'>('export');
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportSuccess, setExportSuccess] = useState<boolean>(false);
@@ -674,6 +58,7 @@ export default function App() {
       zip.file("platformio.ini", platformioIniRaw || "");
       zip.file("README.md", readmeRaw || "");
       zip.file("PROJECT_HANDOVER.md", handoverMdRaw || "");
+      zip.file("USER_MANUAL.md", userManualRaw || "");
       
       // Complete C++ firmware modules inside src/
       const src = zip.folder("src");
@@ -688,6 +73,8 @@ export default function App() {
         src.file("SensorManager.cpp", sensorManagerCppRaw || "");
         src.file("ScaleManager.h", scaleManagerHRaw || "");
         src.file("ScaleManager.cpp", scaleManagerCppRaw || "");
+        src.file("SoundManager.h", soundManagerHRaw || "");
+        src.file("SoundManager.cpp", soundManagerCppRaw || "");
       }
       
       const content = await zip.generateAsync({ type: "blob" });
@@ -721,22 +108,33 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // M5Stack CoreS3 SE Interactive State
-  const [page, setPage] = useState<number>(0); // 0: WEIGHT, 1: DIPS, 2: MANUAL, 3: SETTINGS_HUB, 4: S_DIP, 5: S_MOTION, 6: S_SENSOR, 7: S_SCREEN, 8: WIFI, 9: ACTIVE, 10: CONFIRM, 11: DONE
-  const [subState, setSubState] = useState<number>(0); // 0: MAIN, 1: CONFIRM_SLIM, 2: CONFIRM_STD
-  const [theme, setTheme] = useState<number>(1); // 0: Original, 1: Bee Mine, 2: Dark
+  // M5Stack CoreS3 SE Interactive State (Matches DisplayManager.h AppState)
+  const [page, setPage] = useState<number>(0);
+  const [scrollOffset, setScrollOffset] = useState<number>(0);
+  const [theme, setTheme] = useState<number>(1); // 0: Ind. Slate, 1: Bee Mine, 2: Midnight
   const [brightness, setBrightness] = useState<number>(50);
+  const [volume, setVolume] = useState<number>(70);
+  const [startupTune, setStartupTune] = useState<number>(1);
+  const [finishTune, setFinishTune] = useState<number>(1);
+  const [alertTune, setAlertTune] = useState<number>(1);
   const [limitSwitch, setLimitSwitch] = useState<boolean>(false);
   const [capSensor, setCapSensor] = useState<boolean>(false);
   const [weight, setWeight] = useState<number>(0);
+  const [scaleFactor, setScaleFactor] = useState<number>(420.0);
+  const [calStatus, setCalStatus] = useState<string>('Step 1: Empty jig & press TARE');
+  const [motorEnabled, setMotorEnabled] = useState<boolean>(true);
   const [speed, setSpeed] = useState<number>(50);
   const [posMM, setPosMM] = useState<number>(0.0);
+  const [lastWaxLevelMM, setLastWaxLevelMM] = useState<number>(360.0);
+  const [meltBasesEnabled, setMeltBasesEnabled] = useState<boolean>(true);
   const [isHoming, setIsHoming] = useState<boolean>(false);
   const [isDipBot, setIsDipBot] = useState<boolean>(false);
+  const [isMeltingBases, setIsMeltingBases] = useState<boolean>(false);
+  const [isCleaningJig, setIsCleaningJig] = useState<boolean>(false);
   const [showNumpad, setShowNumpad] = useState<boolean>(false);
   const [numpadVal, setNumpadVal] = useState<string>('');
   const [activeSettingIdx, setActiveSettingIdx] = useState<number>(0);
-  const [lastEvent, setLastEvent] = useState<string>('UI Initialized (Hardware Managers Loaded)');
+  const [lastEvent, setLastEvent] = useState<string>('UI Initialized (2-Bucket Setup + 3-Card Vertical Scroll)');
 
   const homingTimerRef = useRef<any[]>([]);
   const dipBotTimerRef = useRef<any[]>([]);
@@ -753,7 +151,11 @@ export default function App() {
     dipBotTimerRef.current.forEach(clearTimeout);
     dipBotTimerRef.current = [];
     setIsDipBot(false);
-    setLastEvent('Dip Bot motion STOPPED by user');
+    setIsMeltingBases(false);
+    setIsCleaningJig(false);
+    setPosMM(0.0);
+    setLimitSwitch(true);
+    setLastEvent('Motion STOPPED & Retracted to 0.0mm Top Rest');
   };
 
   const startManualMove = (isUp: boolean) => {
@@ -785,10 +187,54 @@ export default function App() {
     }
   };
 
-  const settingNames = ["Slim Weight", "Std Weight", "Slim Dips", "Std Dips", "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed", "Col. Limit", "Soft Limit", "Weight Dwell", "Soft Ramp", "Driver Mode", "Hybrid Speed"];
-  const settingUnits = ["g", "g", "dips", "dips", "s", "s", "mm/s", "mm/s", "g", "mm", "ms", "ms", "", "mm/s"];
-  const [settingValues, setSettingValues] = useState<number[]>([1500, 2500, 15, 25, 10, 4, 60, 50, -50, 500, 500, 50, 1, 30]);
+  const settingNames = [
+    "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
+    "Dip 1 Time", "Sub Dip Time", "Up Speed", "Down Speed",
+    "Col. Limit", "Soft Limit", "Rest Time", "Default Cool",
+    "Driver Mode", "Hybrid Speed", "Jig Length", "Melt Time",
+    "Clean Time", "Start Cool", "End Cool", "Immerse Spd",
+    "Extract Spd", "Drip Dist", "Drip Time", "Known Weight (g)"
+  ];
+  const settingHints = [
+    "Total net wax weight for 36 Slim candles",
+    "Total net wax weight for 36 Std candles",
+    "Total dip cycles for Slim profile",
+    "Total dip cycles for Standard profile",
+    "Bottom soak on Dip #1 to saturate wicks",
+    "Bottom dwell on Dip #2 and later dips",
+    "Fast upward travel in air (above wax)",
+    "Fast downward travel in air (to -15mm)",
+    "Upward push threshold for auto-retract",
+    "Max physical Z travel from top switch",
+    "Default top cooling time (if curve=0)",
+    "Default cooling pause between dips",
+    "Stepper driver current & chopper mode",
+    "StealthChop to SpreadCycle threshold",
+    "Distance from cap sensor to candle base",
+    "Bottom tip soak during Melt Candle Bases",
+    "Full-depth soak during Clean Whole Jig",
+    "Cooling time after Dip #1 (0 = default)",
+    "Cooling time on final dip (0 = default)",
+    "Gentle entry speed starting 15mm above",
+    "Smooth lift speed while in molten wax",
+    "+mm above / -mm in wax (0 = disabled)",
+    "Pause duration at Drip Dist offset",
+    "Reference mass for 2-point calibration"
+  ];
+  const settingUnits = [
+    "g", "g", "dips", "dips",
+    "s", "s", "%", "%",
+    "g", "mm", "s", "s",
+    "", "mm/s", "mm", "s",
+    "s", "s", "s", "%",
+    "%", "mm", "s", "g"
+  ];
+  const [settingValues, setSettingValues] = useState<number[]>([
+    1500, 2500, 15, 25, 10, 4, 60, 50, -50, 500, 25, 25, 1, 30, 200, 5, 60, 0, 0, 25, 20, 15, 5, 1000
+  ]);
   const [dipAborted, setDipAborted] = useState(false);
+  const [collisionAlert, setCollisionAlert] = useState(false);
+  const [lowWaxAlert, setLowWaxAlert] = useState(false);
   const [finalDurationSecs, setFinalDurationSecs] = useState(134);
   const [activeIsSlim, setActiveIsSlim] = useState(true);
   const [activeIsWeight, setActiveIsWeight] = useState(true);
@@ -799,56 +245,45 @@ export default function App() {
     setTimeout(() => setCopiedFile(null), 2000);
   };
 
-  // Color schemes for M5Canvas preview
+  // Upgraded Color Palettes for M5Canvas Preview (Matches DisplayManager.cpp applyTheme)
   const getThemeStyles = () => {
-    if (theme === 0) { // Original Navy/Maroon
+    if (theme === 0) { // Theme 0: Industrial Slate & Terracotta ("Ind. Slate")
       return {
-        bg: '#000000',
-        bannerBg: '#008b8b',
-        bannerTxt: '#ffffff',
-        btn1Bg: '#000080',
-        btn2Bg: '#800000',
-        btnTxt: '#ffffff',
-        activeBg: '#006400',
-        outlineBg: '#a9a9a9'
+        bg: '#0D131A',
+        bannerBg: '#0F766E',
+        bannerTxt: '#FFFFFF',
+        btn1Bg: '#1E407C',
+        btn2Bg: '#7F2D3A',
+        btnTxt: '#FFFFFF',
+        activeBg: '#10B981',
+        outlineBg: '#334155'
       };
-    } else if (theme === 1) { // Bee Mine Pastel
+    } else if (theme === 1) { // Theme 1: Bee Mine Artisanal Honeycomb, Espresso & Botanical Sage
       return {
-        bg: '#232323',
-        bannerBg: '#ffeb82',
+        bg: '#1C1612',
+        bannerBg: '#F5B023',
         bannerTxt: '#000000',
-        btn1Bg: '#ffeb82',
-        btn2Bg: '#8cd2b4',
+        btn1Bg: '#FCD34D',
+        btn2Bg: '#6ECDA5',
         btnTxt: '#000000',
-        activeBg: '#82e682',
-        outlineBg: '#505050'
+        activeBg: '#4ADE80',
+        outlineBg: '#483C32'
       };
-    } else { // Dark Mode
+    } else { // Theme 2: Midnight Workshop High-Contrast OLED ("Midnight")
       return {
-        bg: '#000000',
-        bannerBg: '#282828',
-        bannerTxt: '#d3d3d3',
-        btn1Bg: '#3c3c3c',
-        btn2Bg: '#3c3c3c',
-        btnTxt: '#ffffff',
-        activeBg: '#50a050',
-        outlineBg: '#646464'
+        bg: '#0A0E14',
+        bannerBg: '#1E293B',
+        bannerTxt: '#E8EDF5',
+        btn1Bg: '#253858',
+        btn2Bg: '#1F444C',
+        btnTxt: '#FFFFFF',
+        activeBg: '#22C55E',
+        outlineBg: '#404E62'
       };
     }
   };
 
   const ts = getThemeStyles();
-
-  const getPageTitle = (p: number) => {
-    switch (p) {
-      case 0: return subState === 0 ? "Weight Dipping" : "Confirm Weight Dip";
-      case 1: return subState === 0 ? "Dips Dipping" : "Confirm Dips Dip";
-      case 2: return "Manual Control";
-      case 3: return "Settings Hub";
-      case 8: return "Wi-Fi Portal";
-      default: return "Settings";
-    }
-  };
 
   return (
     <div className="min-h-screen bg-neutral-900 text-neutral-100 flex flex-col font-sans">
@@ -983,7 +418,38 @@ export default function App() {
           }`}
         >
           <Scale className="w-3.5 h-3.5" />
-          ScaleManager
+          ScaleManager.h
+        </button>
+        <button
+          onClick={() => setActiveTab('scalecpp')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'scalecpp' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Scale className="w-3.5 h-3.5" />
+          ScaleManager.cpp
+        </button>
+        <button
+          onClick={() => setActiveTab('sound')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'sound' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          SoundManager.h
+        </button>
+        <button
+          onClick={() => setActiveTab('soundcpp')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'soundcpp' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          SoundManager.cpp
         </button>
         <button
           onClick={() => setActiveTab('header')}
@@ -1017,6 +483,17 @@ export default function App() {
           platformio.ini
         </button>
         <button
+          onClick={() => setActiveTab('manual')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'manual' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-amber-300 hover:text-white hover:bg-neutral-800 border border-amber-500/20'
+          }`}
+        >
+          <Package className="w-3.5 h-3.5" />
+          USER_MANUAL.md
+        </button>
+        <button
           onClick={() => setActiveTab('readme')}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
             activeTab === 'readme' 
@@ -1047,20 +524,20 @@ export default function App() {
                     Bee Mine Candle Dipper Firmware Package
                   </h2>
                   <p className="text-sm text-neutral-300 leading-relaxed">
-                    Complete, self-contained PlatformIO C++ project pre-configured for the <strong>M5Stack CoreS3 SE</strong>. All modular hardware managers, pin configurations, optocoupler logic, and documentation are verified and ready for instant continuation in Google Antigravity.
+                    Complete, self-contained PlatformIO C++ project pre-configured for the <strong>M5Stack CoreS3 SE</strong> and the <strong>Kerzenkiste 36-Candle Stainless Dipping Basket</strong>. Includes 2-Bucket Setup, 3-Card Vertical Scroll UI, a dedicated I2S <strong>SoundManager</strong> melody library (27 tunes + Volume), and a print-ready <strong>USER_MANUAL.md</strong>.
                   </p>
                   <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-neutral-400">
                     <span className="flex items-center gap-1.5 text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> PC817 Optocoupler (GPIO 6)
+                      <CheckCircle2 className="w-3.5 h-3.5" /> 2-Bucket Setup + 3-Card Scroll UI
                     </span>
                     <span className="flex items-center gap-1.5 text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> TMC2209 Single-Wire UART
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Print-Ready USER_MANUAL.md
                     </span>
                     <span className="flex items-center gap-1.5 text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> HX711 24-bit Load Cell
+                      <CheckCircle2 className="w-3.5 h-3.5" /> I2S SoundManager (27 Tunes + Volume)
                     </span>
                     <span className="flex items-center gap-1.5 text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> PlatformIO C++17 Ready
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Two-Stage Speeds &amp; Drip-Off
                     </span>
                   </div>
                 </div>
@@ -1101,29 +578,29 @@ export default function App() {
                   </div>
                   <ul className="text-xs space-y-2 text-neutral-300">
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 6 (M-Bus G6)</span>
-                      <span className="text-emerald-400 font-medium">PC817 Opto (Active-LOW)</span>
+                      <span className="text-neutral-400 font-mono">GPIO 13 (Cap Sensor)</span>
+                      <span className="text-emerald-400 font-medium">Wax Surface Detector</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 7 (M-Bus G7)</span>
-                      <span className="text-neutral-200 font-medium">Top Limit (NC to GND)</span>
+                      <span className="text-neutral-400 font-mono">GPIO 7 (Optical Home)</span>
+                      <span className="text-neutral-200 font-medium">Top 0.0mm Reference</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 8, 9, 17</span>
-                      <span className="text-neutral-200 font-medium">TMC2209 Step, Dir, Enable</span>
+                      <span className="text-neutral-400 font-mono">GPIO 6, 5, 10</span>
+                      <span className="text-neutral-200 font-medium">DM542T Step, Dir, Enable</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 18 (M-Bus G18)</span>
-                      <span className="text-amber-400 font-medium">TMC2209 UART (1kΩ Inline)</span>
+                      <span className="text-neutral-400 font-mono">GPIO 2, 1 (Port A)</span>
+                      <span className="text-amber-400 font-medium">HX711 Load Cell (DOUT/SCK)</span>
                     </li>
                     <li className="flex items-start justify-between">
-                      <span className="text-neutral-400 font-mono">GPIO 5, 13</span>
-                      <span className="text-neutral-200 font-medium">HX711 DT / SCK (EMA Filter)</span>
+                      <span className="text-neutral-400 font-mono">AW88298 I2S Amp</span>
+                      <span className="text-neutral-200 font-medium">CoreS3 SE 1W Speaker</span>
                     </li>
                   </ul>
                 </div>
                 <div className="mt-4 pt-3 border-t border-neutral-800/80 text-[11px] text-neutral-400">
-                  ⚡ <strong>PC817 Wiring:</strong> Pin 4 to GPIO 6 with 10kΩ pull-up to +3.3V, Pin 3 to GND. 24V NPN Black wire to Pin 2, +24V through 2.7kΩ to Pin 1.
+                  ⚡ <strong>36-Candle Jig:</strong> 22×22×62cm stainless basket (~720g empty weight) auto-tared in RAM at the start of every batch.
                 </div>
               </div>
 
@@ -1133,7 +610,7 @@ export default function App() {
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                       <Terminal className="w-4 h-4 text-amber-400" />
-                      Antigravity Terminal Commands
+                      VS Code + PlatformIO Flashing
                     </h3>
                     <span className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 font-mono">
                       PlatformIO
@@ -1190,25 +667,25 @@ export default function App() {
                     <li className="flex items-start gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
                       <div>
-                        <strong className="text-white font-mono">DisplayManager:</strong> Double-buffered M5Canvas rendering, touch hit-testing, decoupled UiEvents.
+                        <strong className="text-white font-mono">DisplayManager:</strong> 2-Bucket Setup (`RECIPE` / `MACHINE`), 3-Card vertical list with hints &amp; right scrollbar.
                       </div>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
                       <div>
-                        <strong className="text-white font-mono">MotorManager:</strong> TMC2209 single-wire UART, StealthChop2 silent dipping, 4-stage homing.
+                        <strong className="text-white font-mono">SoundManager:</strong> Non-blocking AW88298 I2S synthesizer (&lt;2.5KB Flash) with 27 Startup/Finish/Alert tunes &amp; Volume.
                       </div>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
                       <div>
-                        <strong className="text-white font-mono">SensorManager:</strong> 3-sample glitch filtering on limit switch and PC817 wax detection.
+                        <strong className="text-white font-mono">MotorManager:</strong> Two-stage immersion/extraction speeds, Drip-Off, Base Melt &amp; Clean Whole Jig.
                       </div>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
                       <div>
-                        <strong className="text-white font-mono">ScaleManager:</strong> HX711 24-bit strain-gauge ADC, non-blocking EMA filter & NVS tare storage.
+                        <strong className="text-white font-mono">ScaleManager:</strong> RAM-only 0g Tare for different jigs + NVS-saved load cell calibration slope.
                       </div>
                     </li>
                   </ul>
@@ -1225,7 +702,7 @@ export default function App() {
                 <div>
                   <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                     <FileCode className="w-4 h-4 text-amber-400" />
-                    Complete Package File Manifest (13 Files)
+                    Complete Package File Manifest (16 Files)
                   </h3>
                   <p className="text-xs text-neutral-400">
                     All files are bundled in the root and <code className="text-amber-300 font-mono">src/</code> directory inside the export ZIP.
@@ -1243,19 +720,22 @@ export default function App() {
 
               <div className="divide-y divide-neutral-900 text-xs">
                 {[
+                  { name: 'USER_MANUAL.md', path: '/USER_MANUAL.md', type: 'Manual', desc: 'Print-ready Operations & Configuration Manual: Executive Summary, Index, Speed Glossary, Sound & Tunes, Kerzenkiste 36-Candle Jig specs', code: userManualRaw, tab: 'manual' },
                   { name: 'PROJECT_HANDOVER.md', path: '/PROJECT_HANDOVER.md', type: 'Doc', desc: 'Comprehensive handover: full specs, circuits, modules, blockers, and next steps', code: handoverMdRaw, tab: 'readme' },
                   { name: 'platformio.ini', path: '/platformio.ini', type: 'Config', desc: 'PlatformIO CoreS3 board, espressif32 platform, and M5Unified library dependencies', code: platformioIniRaw, tab: 'platformio' },
                   { name: 'README.md', path: '/README.md', type: 'Doc', desc: 'Complete hardware schematics, PC817 wiring, pinout table, and build guide', code: readmeRaw, tab: 'readme' },
-                  { name: 'main.cpp', path: '/src/main.cpp', type: 'C++ Main', desc: 'Non-blocking loop, automated dipping state machine, and Wi-Fi captive portal', code: mainCppRaw, tab: 'main' },
-                  { name: 'PinConfig.h', path: '/src/PinConfig.h', type: 'C++ Header', desc: 'Hardware GPIO definitions for TMC2209, PC817, HX711, and top limit switch', code: pinConfigRaw, tab: 'pinconfig' },
+                  { name: 'main.cpp', path: '/src/main.cpp', type: 'C++ Main', desc: 'Automated dipping state machine, SoundManager integration, collision top-rest retraction, Base Melt, and Clean Jig', code: mainCppRaw, tab: 'main' },
+                  { name: 'PinConfig.h', path: '/src/PinConfig.h', type: 'C++ Header', desc: 'Hardware GPIO definitions for DM542T, Capacitive Sensor, HX711, and top limit switch', code: pinConfigRaw, tab: 'pinconfig' },
+                  { name: 'SoundManager.h', path: '/src/SoundManager.h', type: 'C++ Header', desc: 'Dedicated I2S speaker melody synthesizer header (8 Startup, 10 Finish, 9 Alert tunes + Volume)', code: soundManagerHRaw, tab: 'sound' },
+                  { name: 'SoundManager.cpp', path: '/src/SoundManager.cpp', type: 'C++ Source', desc: 'Compact Flash note arrays (Dota 2 Ready, SpongeBob, Adventure Time, Classical, Heavy Metal, Mario, Bird, Dog Bark)', code: soundManagerCppRaw, tab: 'soundcpp' },
                   { name: 'SensorManager.h', path: '/src/SensorManager.h', type: 'C++ Header', desc: 'Glitch-filtered sensor class definition and active-LOW polarity configuration', code: sensorManagerHRaw, tab: 'sensor' },
-                  { name: 'SensorManager.cpp', path: '/src/SensorManager.cpp', type: 'C++ Source', desc: 'Glitch-filtered 3-sample debouncing for top switch and PC817 optocoupler', code: sensorManagerCppRaw, tab: 'sensorcpp' },
-                  { name: 'MotorManager.h', path: '/src/MotorManager.h', type: 'C++ Header', desc: 'TMC2209 stepper driver class, StealthChop2 modes, and 4-stage homing routines', code: motorManagerHRaw, tab: 'motor' },
-                  { name: 'MotorManager.cpp', path: '/src/MotorManager.cpp', type: 'C++ Source', desc: 'TMC2209 UART single-wire commands, lead screw pulse generation, and backoff calibration', code: motorManagerCppRaw, tab: 'motorcpp' },
-                  { name: 'ScaleManager.h', path: '/src/ScaleManager.h', type: 'C++ Header', desc: 'HX711 24-bit strain-gauge ADC class, EMA filtering, and NVS persistence', code: scaleManagerHRaw, tab: 'scale' },
-                  { name: 'ScaleManager.cpp', path: '/src/ScaleManager.cpp', type: 'C++ Source', desc: 'Non-blocking 10Hz bit-bang sampling and EEPROM tare calibration', code: scaleManagerCppRaw, tab: 'scale' },
-                  { name: 'DisplayManager.h', path: '/src/DisplayManager.h', type: 'C++ Header', desc: 'Double-buffered M5Canvas graphics pipeline class and touch event definitions', code: displayManagerHRaw, tab: 'header' },
-                  { name: 'DisplayManager.cpp', path: '/src/DisplayManager.cpp', type: 'C++ Source', desc: '320x240 LCD rendering engine, multi-palette themes, and decoupled touch coordinates', code: displayManagerCppRaw, tab: 'cpp' },
+                  { name: 'SensorManager.cpp', path: '/src/SensorManager.cpp', type: 'C++ Source', desc: 'Glitch-filtered debouncing for top optical switch and capacitive wax sensor', code: sensorManagerCppRaw, tab: 'sensorcpp' },
+                  { name: 'MotorManager.h', path: '/src/MotorManager.h', type: 'C++ Header', desc: 'Stepper driver class, top-rest retraction, Melt Bases, and Clean Whole Jig', code: motorManagerHRaw, tab: 'motor' },
+                  { name: 'MotorManager.cpp', path: '/src/MotorManager.cpp', type: 'C++ Source', desc: 'Non-blocking pulse generator, dynamic speed transitions, and limit switch backoff', code: motorManagerCppRaw, tab: 'motorcpp' },
+                  { name: 'ScaleManager.h', path: '/src/ScaleManager.h', type: 'C++ Header', desc: 'HX711 24-bit strain-gauge ADC class, RAM-only Tare, and NVS slope persistence', code: scaleManagerHRaw, tab: 'scale' },
+                  { name: 'ScaleManager.cpp', path: '/src/ScaleManager.cpp', type: 'C++ Source', desc: '10Hz bit-bang sampling, blocking multi-sample RAM Tare, and 2-point Load Cell Calibration', code: scaleManagerCppRaw, tab: 'scalecpp' },
+                  { name: 'DisplayManager.h', path: '/src/DisplayManager.h', type: 'C++ Header', desc: 'Double-buffered M5Canvas graphics pipeline class, 2-Bucket Setup, and 3-Card Scroll UI', code: displayManagerHRaw, tab: 'header' },
+                  { name: 'DisplayManager.cpp', path: '/src/DisplayManager.cpp', type: 'C++ Source', desc: '4-tab UI, 2-Bucket Setup (Recipe vs Machine), 3-Card Vertical Scroll with hints, Sound & Tunes page, and 3 palettes', code: displayManagerCppRaw, tab: 'cpp' },
                 ].map((file) => (
                   <div key={file.path} className="px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-neutral-900/40 transition-colors">
                     <div className="flex items-start sm:items-center gap-3">
@@ -1341,15 +821,50 @@ export default function App() {
                         <span>POS: {posMM.toFixed(1)}mm</span>
                         <span>WT: {weight.toFixed(0)}g</span>
                       </>
+                    ) : page === 14 ? (
+                      <>
+                        <span>WAX: {lastWaxLevelMM > 0 ? `${lastWaxLevelMM.toFixed(0)}mm` : '---'}</span>
+                        <span>BASE: {lastWaxLevelMM > settingValues[14] ? `${(lastWaxLevelMM - settingValues[14]).toFixed(0)}mm` : 'DIP 1ST'}</span>
+                      </>
+                    ) : page === 13 ? (
+                      <>
+                        <span className="font-sans">SCALE CALIBRATION</span>
+                        <span>WT: {weight.toFixed(1)}g</span>
+                      </>
+                    ) : page === 3 ? (
+                      <>
+                        <span className="font-sans">SETUP — SELECT GROUP</span>
+                        <span className="font-sans text-[10px] opacity-80">2 BUCKETS</span>
+                      </>
+                    ) : page === 30 ? (
+                      <>
+                        <span className="font-sans">1. RECIPE PARAMS</span>
+                        <span className="font-sans text-[10px] opacity-80">PAGE {Math.floor(scrollOffset / 3) + 1}/2</span>
+                      </>
+                    ) : page === 31 ? (
+                      <>
+                        <span className="font-sans">2. MACHINE SETUP</span>
+                        <span className="font-sans text-[10px] opacity-80">PAGE {Math.floor(scrollOffset / 3) + 1}/2</span>
+                      </>
+                    ) : (page === 4 || page === 5 || page === 50 || page === 51 || page === 52) ? (
+                      <>
+                        <span className="font-sans">
+                          {page === 4 ? 'TARGET WEIGHTS & DIPS' : page === 5 ? 'DIP & DRIP TIMING' : page === 50 ? 'COOLING & FINISHING' : page === 51 ? 'TRAVEL & WAX SPEEDS' : 'JIG & WAX GEOMETRY'}
+                        </span>
+                      </>
                     ) : page === 9 ? (
                       <span className="mx-auto font-sans">DIPPING IN PROGRESS</span>
                     ) : page === 10 ? (
-                      <span className="mx-auto font-sans">CONFIRM ABORT</span>
+                      <span className="mx-auto font-sans">
+                        {collisionAlert ? 'WAX COLLISION ALERT!' : lowWaxAlert ? 'LOW WAX ALERT' : 'CONFIRM ABORT'}
+                      </span>
                     ) : page === 11 ? (
                       <span className="mx-auto font-sans">{dipAborted ? 'PROCESS CANCELLED' : 'PROCESS COMPLETE'}</span>
                     ) : (
                       <>
-                        <span className="font-sans">Thu 01/01/26</span>
+                        <span className="font-sans">
+                          {lastWaxLevelMM >= settingValues[9] - 20 ? `! LOW WAX (${lastWaxLevelMM.toFixed(0)}mm)` : 'Thu 01/01/26'}
+                        </span>
                         <span className="font-sans">15:10</span>
                       </>
                     )}
@@ -1357,71 +872,95 @@ export default function App() {
 
                   {/* Main Page Content (Center 70% height = 168px) */}
                   <div className="h-[168px] w-full p-2 flex flex-col justify-center items-center relative">
-                    {/* Pages 0 & 1: Weight / Dips Based */}
-                    {(page === 0 || page === 1) && (
-                      <div className="w-full h-full flex items-center justify-center gap-3 px-2">
-                        {subState === 0 ? (
-                          <>
-                            <button
-                              onClick={() => {
-                                setSubState(1);
-                                setActiveIsSlim(true);
-                                setActiveIsWeight(page === 0);
-                                setLastEvent(`Selected SLIM (${page === 0 ? settingValues[0] + 'g' : settingValues[2] + ' dips'})`);
-                              }}
-                              className="flex-1 h-24 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex flex-col items-center justify-center gap-1"
-                              style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
-                            >
-                              <span className="text-sm">SLIM</span>
-                              <span className="text-[10px] opacity-80">
-                                ({page === 0 ? `${settingValues[0]} g` : `${settingValues[2]} dips`})
-                              </span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSubState(2);
-                                setActiveIsSlim(false);
-                                setActiveIsWeight(page === 0);
-                                setLastEvent(`Selected STANDARD (${page === 0 ? settingValues[1] + 'g' : settingValues[3] + ' dips'})`);
-                              }}
-                              className="flex-1 h-24 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex flex-col items-center justify-center gap-1"
-                              style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
-                            >
-                              <span className="text-sm">STANDARD</span>
-                              <span className="text-[10px] opacity-80">
-                                ({page === 0 ? `${settingValues[1]} g` : `${settingValues[3]} dips`})
-                              </span>
-                            </button>
-                          </>
-                        ) : (
-                          <div className="w-full h-full flex flex-col justify-between p-1">
-                            <div className="bg-neutral-800/80 p-2 rounded-lg text-[11px] flex flex-col gap-1 text-white border border-white/10">
-                              <div className="flex justify-between">
-                                <span className="opacity-70">Mode:</span>
-                                <span className="font-semibold">{activeIsWeight ? 'Weight' : 'Dips'}</span>
-                                <span className="opacity-70 ml-2">Profile:</span>
-                                <span className="font-semibold">{activeIsSlim ? 'Slim' : 'Standard'}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="opacity-70">Target:</span>
-                                <span className="font-bold text-yellow-300">
-                                  {activeIsWeight
-                                    ? (activeIsSlim ? `${settingValues[0]} g` : `${settingValues[1]} g`)
-                                    : (activeIsSlim ? `${settingValues[2]} dips` : `${settingValues[3]} dips`)}
-                                </span>
-                                <span className="opacity-70">Est:</span>
-                                <span className="font-semibold">02:15</span>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => { setPage(9); setDipAborted(false); setLastEvent('Started Dipping Process'); }}
-                              className="w-full py-2.5 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex items-center justify-center"
-                              style={{ backgroundColor: ts.activeBg, color: '#000000' }}
-                            >
-                              START DIP
-                            </button>
-                          </div>
-                        )}
+                    {/* Page 0: Unified 1-Screen Dipping Launcher + [x] MELT BASES */}
+                    {page === 0 && (
+                      <div className="w-full h-full flex flex-col justify-between p-1 gap-1.5">
+                        {/* Mode Toggle Pills */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => { setActiveIsWeight(true); setLastEvent('Switched to Weight Mode'); }}
+                            className="py-1 rounded-lg font-bold text-[11px] transition-all"
+                            style={{
+                              backgroundColor: activeIsWeight ? ts.btn1Bg : ts.outlineBg,
+                              color: activeIsWeight ? ts.btnTxt : '#ffffff'
+                            }}
+                          >
+                            MODE: WEIGHT
+                          </button>
+                          <button
+                            onClick={() => { setActiveIsWeight(false); setLastEvent('Switched to Dips Mode'); }}
+                            className="py-1 rounded-lg font-bold text-[11px] transition-all"
+                            style={{
+                              backgroundColor: !activeIsWeight ? ts.btn1Bg : ts.outlineBg,
+                              color: !activeIsWeight ? ts.btnTxt : '#ffffff'
+                            }}
+                          >
+                            MODE: DIPS
+                          </button>
+                        </div>
+
+                        {/* Side-by-Side Profile Cards */}
+                        <div className="grid grid-cols-2 gap-2 flex-1">
+                          <button
+                            onClick={() => { setActiveIsSlim(true); setLastEvent('Selected SLIM profile'); }}
+                            className={`rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-0.5 transition-all ${activeIsSlim ? 'ring-2 ring-white' : ''}`}
+                            style={{
+                              backgroundColor: activeIsSlim ? ts.btn1Bg : ts.outlineBg,
+                              color: activeIsSlim ? ts.btnTxt : '#ffffff'
+                            }}
+                          >
+                            <span>SLIM</span>
+                            <span className="text-[11px] opacity-90">
+                              {activeIsWeight ? `${settingValues[0]} g` : `${settingValues[2]} dips`}
+                            </span>
+                            <span className="text-[9px] opacity-75">Est: 02:15</span>
+                          </button>
+                          <button
+                            onClick={() => { setActiveIsSlim(false); setLastEvent('Selected STANDARD profile'); }}
+                            className={`rounded-xl font-bold text-xs flex flex-col items-center justify-center gap-0.5 transition-all ${!activeIsSlim ? 'ring-2 ring-white' : ''}`}
+                            style={{
+                              backgroundColor: !activeIsSlim ? ts.btn2Bg : ts.outlineBg,
+                              color: !activeIsSlim ? ts.btnTxt : '#ffffff'
+                            }}
+                          >
+                            <span>STANDARD</span>
+                            <span className="text-[11px] opacity-90">
+                              {activeIsWeight ? `${settingValues[1]} g` : `${settingValues[3]} dips`}
+                            </span>
+                            <span className="text-[9px] opacity-75">Est: 03:40</span>
+                          </button>
+                        </div>
+
+                        {/* Bottom Row: [x] MELT BASES Checkbox + START DIP Button */}
+                        <div className="grid grid-cols-12 gap-2">
+                          <button
+                            onClick={() => {
+                              setMeltBasesEnabled(!meltBasesEnabled);
+                              setLastEvent(`Final-Stage Base Melt: ${!meltBasesEnabled ? 'ENABLED' : 'OFF'}`);
+                            }}
+                            className="col-span-6 py-2 rounded-xl font-bold text-[10px] shadow-md transition-all active:scale-95 flex items-center justify-center"
+                            style={{
+                              backgroundColor: meltBasesEnabled ? ts.btn2Bg : ts.outlineBg,
+                              color: meltBasesEnabled ? ts.btnTxt : '#ffffff'
+                            }}
+                          >
+                            {meltBasesEnabled ? '[x] MELT BASES' : '[ ] MELT BASES'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setWeight(0);
+                              setPage(9);
+                              setDipAborted(false);
+                              setCollisionAlert(false);
+                              setLowWaxAlert(false);
+                              setLastEvent(`Auto-Tared Jig in RAM (0g) & Started ${activeIsSlim ? 'Slim' : 'Standard'} Dip`);
+                            }}
+                            className="col-span-6 py-2 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex items-center justify-center"
+                            style={{ backgroundColor: ts.activeBg, color: '#000000' }}
+                          >
+                            START DIP
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -1494,17 +1033,18 @@ export default function App() {
                                 setIsDipBot(true);
                                 setLastEvent('Dip Bot Stage 1: Lowering to capacitive wax sensor...');
                                 const t1 = setTimeout(() => {
-                                  setPosMM(120.0);
+                                  setPosMM(360.0);
+                                  setLastWaxLevelMM(360.0);
                                   setCapSensor(true);
-                                  setLastEvent('Dip Bot Stage 2: In wax, holding...');
+                                  setLastEvent('Dip Bot Stage 2: Wax sensed at 360mm, holding...');
                                   const t2 = setTimeout(() => {
                                     setCapSensor(false);
-                                    setLastEvent('Dip Bot Stage 3: Returning to 0.0mm home...');
+                                    setLastEvent('Dip Bot Stage 3: Returning to 0.0mm top rest...');
                                     const t3 = setTimeout(() => {
                                       setPosMM(0.0);
                                       setLimitSwitch(true);
                                       setIsDipBot(false);
-                                      setLastEvent('Dip Bot complete: Carriage home');
+                                      setLastEvent('Dip Bot complete: Wax level saved (360mm)');
                                     }, 800);
                                     dipBotTimerRef.current.push(t3);
                                   }, 800);
@@ -1522,7 +1062,7 @@ export default function App() {
                             {isDipBot ? 'STOP' : 'DIP BOT'}
                           </button>
                           <button
-                            onClick={() => { setWeight(0); setLastEvent('Tare executed: Scale zeroed (10 samples)'); }}
+                            onClick={() => { setWeight(0); setLastEvent('RAM Tare executed: Current jig zeroed (0.0g)'); }}
                             className="flex-1 rounded-lg text-xs font-bold bg-amber-500 text-black flex items-center justify-center"
                           >
                             TARE
@@ -1531,40 +1071,486 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Page 3: Settings Hub */}
-                    {page === 3 && (
-                      <div className="w-full h-full grid grid-cols-2 gap-2 p-2">
-                        <button onClick={() => setPage(4)} className="rounded-xl font-bold text-xs" style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}>Dipping</button>
-                        <button onClick={() => setPage(5)} className="rounded-xl font-bold text-xs" style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}>Motion</button>
-                        <button onClick={() => setPage(6)} className="rounded-xl font-bold text-xs" style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}>Sensor</button>
-                        <button onClick={() => setPage(7)} className="rounded-xl font-bold text-xs" style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}>Screen</button>
+                    {/* Page 14: Jig & Base Tools (Melt Candle Bases + Clean Whole Jig) */}
+                    {page === 14 && (
+                      <div className="w-full h-full flex flex-col justify-between p-1 gap-1.5">
+                        <button
+                          onClick={() => {
+                            if (isMeltingBases) {
+                              stopDipBot();
+                            } else {
+                              const baseDepth = Math.max(0, lastWaxLevelMM - settingValues[14]);
+                              setIsMeltingBases(true);
+                              setPosMM(baseDepth);
+                              setLastEvent(`Melting Candle Bases at Z=${baseDepth}mm (${lastWaxLevelMM}mm - ${settingValues[14]}mm) for ${settingValues[15]}s...`);
+                              const t1 = setTimeout(() => {
+                                setPosMM(0.0);
+                                setIsMeltingBases(false);
+                                setLastEvent('Melt Candle Bases complete: Returned to 0.0mm top rest');
+                              }, 1200);
+                              dipBotTimerRef.current = [t1];
+                            }
+                          }}
+                          className="w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center transition-all"
+                          style={{
+                            backgroundColor: isMeltingBases ? '#dc2626' : ts.btn1Bg,
+                            color: isMeltingBases ? '#ffffff' : ts.btnTxt
+                          }}
+                        >
+                          {isMeltingBases ? 'STOP MELTING BASES' : `MELT CANDLE BASES (${settingValues[15]}s)`}
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (isCleaningJig) {
+                              stopDipBot();
+                            } else {
+                              setIsCleaningJig(true);
+                              setPosMM(360.0);
+                              setLastWaxLevelMM(360.0);
+                              setLastEvent(`Cleaning Whole Jig at full sensor depth (Z=360mm) for ${settingValues[16]}s...`);
+                              const t1 = setTimeout(() => {
+                                setPosMM(0.0);
+                                setIsCleaningJig(false);
+                                setLastEvent('Clean Whole Jig complete: Returned to 0.0mm top rest');
+                              }, 1200);
+                              dipBotTimerRef.current = [t1];
+                            }
+                          }}
+                          className="w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center transition-all"
+                          style={{
+                            backgroundColor: isCleaningJig ? '#dc2626' : ts.btn2Bg,
+                            color: isCleaningJig ? '#ffffff' : ts.btnTxt
+                          }}
+                        >
+                          {isCleaningJig ? 'STOP CLEANING JIG' : `CLEAN WHOLE JIG (${settingValues[16]}s)`}
+                        </button>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => {
+                              setMeltBasesEnabled(!meltBasesEnabled);
+                              setLastEvent(`Auto Base Melt at end of dip: ${!meltBasesEnabled ? 'ON' : 'OFF'}`);
+                            }}
+                            className="py-1.5 rounded-lg font-bold text-[10px]"
+                            style={{
+                              backgroundColor: meltBasesEnabled ? ts.activeBg : ts.outlineBg,
+                              color: meltBasesEnabled ? '#000000' : '#ffffff'
+                            }}
+                          >
+                            {meltBasesEnabled ? 'AUTO END: ON' : 'AUTO END: OFF'}
+                          </button>
+                          <button
+                            onClick={() => setPage(52)}
+                            className="py-1.5 rounded-lg font-bold text-[10px] text-white"
+                            style={{ backgroundColor: ts.outlineBg }}
+                          >
+                            JIG LEN &amp; TIMES &gt;
+                          </button>
+                        </div>
                       </div>
                     )}
 
-                    {/* Sub Settings Pages (4, 5, 6) */}
-                    {(page === 4 || page === 5 || page === 6) && !showNumpad && (
-                      <div className="w-full h-full flex flex-col gap-1 p-1">
-                        {(page === 4 ? [0,1,2,3] : page === 5 ? [4,5,6,7] : [8,9,10,11]).map((idx) => (
-                          <div key={idx} className="flex items-center justify-between text-xs px-2 py-0.5 rounded bg-neutral-800/40">
+                    {/* Page 3: 2-Bucket Top-Level Setup Hub (1. RECIPE PARAMS vs 2. MACHINE SETUP) */}
+                    {page === 3 && (
+                      <div className="w-full h-full flex flex-col justify-between p-1 gap-2">
+                        <button
+                          onClick={() => { setScrollOffset(0); setPage(30); setLastEvent('Opened 1. RECIPE PARAMS (3-Card Scroll)'); }}
+                          className="flex-1 rounded-xl px-3 flex flex-col justify-center text-left transition-all shadow"
+                          style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
+                        >
+                          <div className="font-bold text-xs flex items-center justify-between w-full">
+                            <span>1. RECIPE PARAMS</span>
+                            <span>&gt;</span>
+                          </div>
+                          <span className="text-[10px] opacity-80 mt-0.5">
+                            Weights, Dips, Speeds, Drip &amp; Cooling Curve
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => { setScrollOffset(0); setPage(31); setLastEvent('Opened 2. MACHINE SETUP (3-Card Scroll)'); }}
+                          className="flex-1 rounded-xl px-3 flex flex-col justify-center text-left transition-all shadow"
+                          style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
+                        >
+                          <div className="font-bold text-xs flex items-center justify-between w-full">
+                            <span>2. MACHINE SETUP</span>
+                            <span>&gt;</span>
+                          </div>
+                          <span className="text-[10px] opacity-80 mt-0.5">
+                            Jig &amp; Limit, Load Cell Cal, Motor, Theme &amp; Wi-Fi
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Page 30: Bucket 1 — RECIPE PARAMS (5 Categories in 3-Card Vertical Scroll + Right Scrollbar) */}
+                    {page === 30 && (
+                      <div className="w-full h-full flex gap-1.5 p-0.5">
+                        <div className="flex-1 flex flex-col justify-between gap-1">
+                          {[
+                            { title: '1. Target Weights & Dips >', hint: 'Slim/Std net grams & dip counts', target: 4, primary: true },
+                            { title: '2. Travel & Wax Speeds >', hint: 'Up, Down, Immerse (-15mm) & Extract', target: 51, primary: true },
+                            { title: '3. Dip & Drip Timing >', hint: '1st/Sub dip dwell & Drip-Off offset', target: 5, primary: false },
+                            { title: '4. Cooling & Finishing >', hint: 'Tapered cooling curve & Base Melt', target: 50, primary: false },
+                          ].slice(scrollOffset, scrollOffset + 3).map((cat, i) => (
+                            <button
+                              key={i}
+                              onClick={() => { setScrollOffset(0); setPage(cat.target); setLastEvent(`Opened ${cat.title}`); }}
+                              className="h-[48px] w-full rounded-lg px-2.5 flex flex-col justify-center text-left"
+                              style={{ backgroundColor: cat.primary ? ts.btn1Bg : ts.btn2Bg, color: ts.btnTxt }}
+                            >
+                              <span className="font-bold text-[11px] leading-tight">{cat.title}</span>
+                              <span className="text-[9px] opacity-80 leading-tight mt-0.5">{cat.hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="w-[42px] flex flex-col justify-between gap-1">
+                          <button
+                            onClick={() => setScrollOffset(Math.max(0, scrollOffset - 3))}
+                            className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                            style={{ backgroundColor: scrollOffset > 0 ? ts.btn1Bg : ts.outlineBg, color: scrollOffset > 0 ? ts.btnTxt : '#ffffff' }}
+                          >
+                            ▲
+                          </button>
+                          <div className="h-[48px] rounded-lg flex items-center justify-center text-[10px] font-mono text-white" style={{ backgroundColor: ts.outlineBg }}>
+                            {Math.floor(scrollOffset / 3) + 1}/2
+                          </div>
+                          <button
+                            onClick={() => setScrollOffset(scrollOffset + 3 < 4 ? scrollOffset + 3 : scrollOffset)}
+                            className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                            style={{ backgroundColor: scrollOffset + 3 < 4 ? ts.btn1Bg : ts.outlineBg, color: scrollOffset + 3 < 4 ? ts.btnTxt : '#ffffff' }}
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Page 31: Bucket 2 — MACHINE SETUP (6 Categories in 3-Card Vertical Scroll + Right Scrollbar) */}
+                    {page === 31 && (
+                      <div className="w-full h-full flex gap-1.5 p-0.5">
+                        <div className="flex-1 flex flex-col justify-between gap-1">
+                          {[
+                            { title: '1. Jig & Wax Geometry >', hint: 'Soft Limit, Jig Length, Cutoff & Clean', target: 52, primary: true },
+                            { title: '2. Scale & Collision >', hint: 'Collision limit & 2-Step Load Cell Cal', target: 6, primary: true },
+                            { title: '3. Stepper Motor >', hint: 'Manual speed, Enable/Disable & Home', target: 12, primary: false },
+                            { title: '4. Screen & Theme >', hint: 'Backlight brightness & 3 color palettes', target: 7, primary: false },
+                            { title: '5. Wi-Fi Portal >', hint: 'Launch SoftAP captive setup portal', target: 8, primary: true },
+                            { title: '6. Sound & Tunes >', hint: 'Volume & Startup / Finish / Alert melodies', target: 53, primary: false },
+                          ].slice(scrollOffset, scrollOffset + 3).map((cat, i) => (
+                            <button
+                              key={i}
+                              onClick={() => { setScrollOffset(0); setPage(cat.target); setLastEvent(`Opened ${cat.title}`); }}
+                              className="h-[48px] w-full rounded-lg px-2.5 flex flex-col justify-center text-left"
+                              style={{ backgroundColor: cat.primary ? ts.btn1Bg : ts.btn2Bg, color: ts.btnTxt }}
+                            >
+                              <span className="font-bold text-[11px] leading-tight">{cat.title}</span>
+                              <span className="text-[9px] opacity-80 leading-tight mt-0.5">{cat.hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="w-[42px] flex flex-col justify-between gap-1">
+                          <button
+                            onClick={() => setScrollOffset(Math.max(0, scrollOffset - 3))}
+                            className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                            style={{ backgroundColor: scrollOffset > 0 ? ts.btn1Bg : ts.outlineBg, color: scrollOffset > 0 ? ts.btnTxt : '#ffffff' }}
+                          >
+                            ▲
+                          </button>
+                          <div className="h-[48px] rounded-lg flex items-center justify-center text-[10px] font-mono text-white" style={{ backgroundColor: ts.outlineBg }}>
+                            {Math.floor(scrollOffset / 3) + 1}/2
+                          </div>
+                          <button
+                            onClick={() => setScrollOffset(scrollOffset + 3 < 6 ? scrollOffset + 3 : scrollOffset)}
+                            className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                            style={{ backgroundColor: scrollOffset + 3 < 6 ? ts.btn1Bg : ts.outlineBg, color: scrollOffset + 3 < 6 ? ts.btnTxt : '#ffffff' }}
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Page 53: Sound & Tunes (3-Card Vertical Scroll: Volume, Startup Tune, Finish Tune, Alert Tune) */}
+                    {page === 53 && (
+                      <div className="w-full h-full flex gap-1.5 p-0.5">
+                        <div className="flex-1 flex flex-col justify-between gap-1">
+                          {[0, 1, 2, 3].slice(scrollOffset, scrollOffset + 3).map((itemIdx) => {
+                            const startupNames = ['Off (Silent)', 'Standard', 'Dota 2 Ready', 'SpongeBob', 'Adv. Time', 'Classical', 'Heavy Metal', 'Mario 1-Up'];
+                            const finishNames = ['Off (Silent)', 'Standard', 'Dota 2 Ready', 'SpongeBob', 'Adv. Time', 'Classical', 'Heavy Metal', 'Kitchen Timer', 'iPhone Ding', 'Bird Song'];
+                            const alertNames = ['Off (Silent)', 'Standard', 'Mario Death', 'Dog Bark', 'Bird Chirp', 'Timer Ring', 'iPhone Ding', 'Metal Doom', 'Retro Fail'];
+
+                            if (itemIdx === 0) {
+                              return (
+                                <button
+                                  key="vol"
+                                  onClick={() => {
+                                    const nextV = volume >= 100 ? 0 : volume + 20;
+                                    setVolume(nextV);
+                                    setLastEvent(`Speaker Volume: ${nextV === 0 ? 'MUTE (0%)' : `${nextV}%`}`);
+                                  }}
+                                  className="h-[48px] w-full rounded-lg px-2.5 flex flex-col justify-center text-left"
+                                  style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
+                                >
+                                  <div className="w-full flex items-center justify-between font-bold text-[11px]">
+                                    <span>Speaker Volume:</span>
+                                    <span>{volume === 0 ? 'MUTE (0%)' : `${volume}%`}</span>
+                                  </div>
+                                  <div className="w-full h-2.5 rounded-full mt-1 overflow-hidden" style={{ backgroundColor: ts.outlineBg }}>
+                                    <div className="h-full rounded-full" style={{ width: `${volume}%`, backgroundColor: ts.activeBg }} />
+                                  </div>
+                                </button>
+                              );
+                            } else if (itemIdx === 1) {
+                              return (
+                                <button
+                                  key="st"
+                                  onClick={() => {
+                                    const next = (startupTune + 1) % startupNames.length;
+                                    setStartupTune(next);
+                                    setLastEvent(`Startup Tune: ${startupNames[next]} (Live Preview Playing!)`);
+                                  }}
+                                  className="h-[48px] w-full rounded-lg px-2.5 flex flex-col justify-center text-left"
+                                  style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
+                                >
+                                  <div className="w-full flex items-center justify-between font-bold text-[11px]">
+                                    <span>Startup Tune:</span>
+                                    <span>{startupNames[startupTune]}</span>
+                                  </div>
+                                  <span className="text-[9px] opacity-80 mt-0.5">Tap to cycle &amp; test boot melody</span>
+                                </button>
+                              );
+                            } else if (itemIdx === 2) {
+                              return (
+                                <button
+                                  key="fn"
+                                  onClick={() => {
+                                    const next = (finishTune + 1) % finishNames.length;
+                                    setFinishTune(next);
+                                    setLastEvent(`Finish Tune: ${finishNames[next]} (Live Preview Playing!)`);
+                                  }}
+                                  className="h-[48px] w-full rounded-lg px-2.5 flex flex-col justify-center text-left"
+                                  style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
+                                >
+                                  <div className="w-full flex items-center justify-between font-bold text-[11px]">
+                                    <span>Finish Tune:</span>
+                                    <span>{finishNames[finishTune]}</span>
+                                  </div>
+                                  <span className="text-[9px] opacity-80 mt-0.5">Tap to cycle &amp; test batch complete melody</span>
+                                </button>
+                              );
+                            } else {
+                              return (
+                                <button
+                                  key="al"
+                                  onClick={() => {
+                                    const next = (alertTune + 1) % alertNames.length;
+                                    setAlertTune(next);
+                                    setLastEvent(`Alert Tune: ${alertNames[next]} (Live Preview Playing!)`);
+                                  }}
+                                  className="h-[48px] w-full rounded-lg px-2.5 flex flex-col justify-center text-left"
+                                  style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
+                                >
+                                  <div className="w-full flex items-center justify-between font-bold text-[11px]">
+                                    <span>Alert Tune:</span>
+                                    <span>{alertNames[alertTune]}</span>
+                                  </div>
+                                  <span className="text-[9px] opacity-80 mt-0.5">Tap to cycle &amp; test collision/error alarm</span>
+                                </button>
+                              );
+                            }
+                          })}
+                        </div>
+                        <div className="w-[42px] flex flex-col justify-between gap-1">
+                          <button
+                            onClick={() => setScrollOffset(Math.max(0, scrollOffset - 3))}
+                            className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                            style={{ backgroundColor: scrollOffset > 0 ? ts.btn1Bg : ts.outlineBg, color: scrollOffset > 0 ? ts.btnTxt : '#ffffff' }}
+                          >
+                            ▲
+                          </button>
+                          <div className="h-[48px] rounded-lg flex items-center justify-center text-[10px] font-mono text-white" style={{ backgroundColor: ts.outlineBg }}>
+                            {Math.floor(scrollOffset / 3) + 1}/2
+                          </div>
+                          <button
+                            onClick={() => setScrollOffset(scrollOffset + 3 < 4 ? scrollOffset + 3 : scrollOffset)}
+                            className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                            style={{ backgroundColor: scrollOffset + 3 < 4 ? ts.btn1Bg : ts.outlineBg, color: scrollOffset + 3 < 4 ? ts.btnTxt : '#ffffff' }}
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3-Card Vertical Parameter Lists with 1-Line Subtitle Hints + Right-Side Scroll Bar */}
+                    {(page === 4 || page === 5 || page === 50 || page === 51 || page === 52) && !showNumpad && (() => {
+                      const items = page === 4 ? [0,1,2,3] : page === 5 ? [4,5,21,22] : page === 50 ? [10,17,18,15] : page === 51 ? [6,7,19,20] : [9,14,16];
+                      const needsScroll = items.length > 3;
+                      const visibleItems = items.slice(scrollOffset, scrollOffset + 3);
+                      return (
+                        <div className="w-full h-full flex gap-1.5 p-0.5">
+                          <div className="flex-1 flex flex-col justify-between gap-1">
+                            {visibleItems.map((idx, i) => {
+                              const val = settingValues[idx];
+                              let valLabel = `${val}${settingUnits[idx]}`;
+                              if ((idx === 17 || idx === 18) && val === 0) valLabel = '0 (Def)';
+                              else if (idx === 21 && val === 0) valLabel = '0 (Off)';
+                              else if (idx === 21 && val > 0) valLabel = `+${val}${settingUnits[idx]}`;
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => { setActiveSettingIdx(idx); setNumpadVal(''); setShowNumpad(true); }}
+                                  className="h-[48px] w-full rounded-lg px-2.5 flex flex-col justify-center text-left"
+                                  style={{ backgroundColor: i % 2 === 0 ? ts.btn1Bg : ts.btn2Bg, color: ts.btnTxt }}
+                                >
+                                  <div className="w-full flex items-center justify-between font-bold text-[11px] leading-tight">
+                                    <span>{settingNames[idx]}:</span>
+                                    <span>{valLabel}</span>
+                                  </div>
+                                  <span className="text-[9px] opacity-80 leading-tight mt-0.5 truncate w-full">
+                                    {settingHints[idx]}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {needsScroll && (
+                            <div className="w-[42px] flex flex-col justify-between gap-1">
+                              <button
+                                onClick={() => setScrollOffset(Math.max(0, scrollOffset - 3))}
+                                className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                                style={{ backgroundColor: scrollOffset > 0 ? ts.btn1Bg : ts.outlineBg, color: scrollOffset > 0 ? ts.btnTxt : '#ffffff' }}
+                              >
+                                ▲
+                              </button>
+                              <div className="h-[48px] rounded-lg flex items-center justify-center text-[10px] font-mono text-white" style={{ backgroundColor: ts.outlineBg }}>
+                                {Math.floor(scrollOffset / 3) + 1}/{Math.ceil(items.length / 3)}
+                              </div>
+                              <button
+                                onClick={() => setScrollOffset(scrollOffset + 3 < items.length ? scrollOffset + 3 : scrollOffset)}
+                                className="h-[48px] rounded-lg font-bold text-xs flex items-center justify-center"
+                                style={{ backgroundColor: scrollOffset + 3 < items.length ? ts.btn1Bg : ts.outlineBg, color: scrollOffset + 3 < items.length ? ts.btnTxt : '#ffffff' }}
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Page 6: Sensor & Scale Settings (with Col. Limit & Scale Cal Wizard button) */}
+                    {page === 6 && !showNumpad && (
+                      <div className="w-full h-full flex flex-col justify-between p-0.5">
+                        {[8, 9, 10].map((idx) => (
+                          <div key={idx} className="flex items-center justify-between text-[11px] px-2 py-1 rounded bg-neutral-800/40">
                             <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>{settingNames[idx]}</span>
                             <button
                               onClick={() => { setActiveSettingIdx(idx); setNumpadVal(''); setShowNumpad(true); }}
-                              className="px-2 py-0.5 rounded font-bold text-xs text-white"
+                              className="px-2.5 py-0.5 rounded font-bold text-[11px] text-white"
                               style={{ backgroundColor: ts.outlineBg }}
                             >
                               {settingValues[idx]} {settingUnits[idx]}
                             </button>
                           </div>
                         ))}
-                        {page === 6 && (
+                        <div className="flex items-center justify-between text-[11px] px-2 py-1 rounded bg-neutral-800/40">
+                          <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Load Cell Setup</span>
                           <button
-                            onClick={() => { setPage(8); setLastEvent('Opened Wi-Fi Portal'); }}
-                            className="mt-1 w-full py-1 rounded-lg font-bold text-xs"
+                            onClick={() => {
+                              setCalStatus('Step 1: Empty jig & press TARE');
+                              setPage(13);
+                              setLastEvent('Opened Load Cell Calibration Wizard');
+                            }}
+                            className="px-3 py-0.5 rounded font-bold text-[11px]"
                             style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
                           >
-                            RESET WI-FI PORTAL
+                            SCALE CAL &gt;
                           </button>
-                        )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Page 13: Guided 2-Step Load Cell Calibration Wizard */}
+                    {page === 13 && !showNumpad && (
+                      <div className="w-full h-full flex flex-col justify-between p-1">
+                        <div className="rounded-lg p-1.5 flex flex-col items-center justify-center text-white" style={{ backgroundColor: ts.outlineBg }}>
+                          <div className="text-xs font-bold font-mono">
+                            LIVE: {weight.toFixed(1)} g  (Factor: {scaleFactor.toFixed(1)})
+                          </div>
+                          <div className="text-[10px] text-amber-300 mt-0.5">{calStatus}</div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setWeight(0.0);
+                            setCalStatus('Zeroed (0.0g)! Hang known weight & tap 2');
+                            setLastEvent('Scale Wizard Step 1: Tared in RAM (10 samples)');
+                          }}
+                          className="w-full py-2 rounded-lg font-bold text-[11px]"
+                          style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
+                        >
+                          1. TARE EMPTY JIG (0g)
+                        </button>
+                        <button
+                          onClick={() => {
+                            setActiveSettingIdx(23);
+                            setNumpadVal('');
+                            setShowNumpad(true);
+                          }}
+                          className="w-full py-2 rounded-lg font-bold text-[11px]"
+                          style={{ backgroundColor: ts.btn2Bg, color: ts.btnTxt }}
+                        >
+                          2. SET KNOWN WEIGHT (g)
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Page 12: Motor Settings */}
+                    {page === 12 && !showNumpad && (
+                      <div className="w-full h-full flex flex-col justify-between p-1">
+                        <div className="flex items-center justify-between text-[11px] px-2 py-1 rounded bg-neutral-800/40">
+                          <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Driver Mode</span>
+                          <button
+                            onClick={() => {
+                              const nextM = (settingValues[12] + 1) % 3;
+                              const arr = [...settingValues];
+                              arr[12] = nextM;
+                              setSettingValues(arr);
+                              setLastEvent(`Saved Driver Mode: ${['StealthChop', 'SpreadCycle', 'Adaptive'][nextM]}`);
+                            }}
+                            className="px-2.5 py-1 rounded font-bold text-[11px]"
+                            style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
+                          >
+                            {['StealthChop', 'SpreadCycle', 'Adaptive'][settingValues[12]]}
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] px-2 py-1 rounded bg-neutral-800/40">
+                          <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Hybrid Speed</span>
+                          <button
+                            onClick={() => { setActiveSettingIdx(13); setNumpadVal(''); setShowNumpad(true); }}
+                            className="px-2.5 py-1 rounded font-bold text-[11px] text-white"
+                            style={{ backgroundColor: ts.outlineBg }}
+                          >
+                            {settingValues[13]} mm/s
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] px-2 py-1 rounded bg-neutral-800/40">
+                          <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Motor Power</span>
+                          <button
+                            onClick={() => {
+                              setMotorEnabled(!motorEnabled);
+                              setLastEvent(`Motor coils ${!motorEnabled ? 'ENABLED' : 'DISABLED'}`);
+                            }}
+                            className="px-2.5 py-1 rounded font-bold text-[11px]"
+                            style={{
+                              backgroundColor: motorEnabled ? ts.activeBg : '#dc2626',
+                              color: motorEnabled ? '#000000' : '#ffffff'
+                            }}
+                          >
+                            {motorEnabled ? 'ENABLED' : 'DISABLED'}
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -1581,12 +1567,12 @@ export default function App() {
                           onClick={() => {
                             const nt = (theme + 1) % 3;
                             setTheme(nt);
-                            setLastEvent(`Applied Theme: ${['Original', 'Bee Mine', 'Dark Mode'][nt]}`);
+                            setLastEvent(`Applied Theme: ${['Ind. Slate', 'Bee Mine', 'Midnight'][nt]}`);
                           }}
                           className="w-full py-2 rounded-xl font-bold"
                           style={{ backgroundColor: ts.btn1Bg, color: ts.btnTxt }}
                         >
-                          {['Original', 'Bee Mine', 'Dark Mode'][theme]}
+                          {['Ind. Slate', 'Bee Mine', 'Midnight'][theme]}
                         </button>
                       </div>
                     )}
@@ -1609,25 +1595,66 @@ export default function App() {
                         <span className="text-amber-400 font-bold">Dip 1: Lowering...</span>
                         <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>Time: 00:04 / 02:45 (est)</span>
                         <span style={{ color: ts.bannerTxt === '#000000' ? '#fff' : ts.btnTxt }}>
-                          {activeIsWeight ? 'Weight: 120g / 1500g' : 'Dips: 1 / 15'}
+                          {activeIsWeight ? `Weight: ${weight.toFixed(0)}g / ${activeIsSlim ? settingValues[0] : settingValues[1]}g` : `Dips: 1 / ${activeIsSlim ? settingValues[2] : settingValues[3]} (${weight.toFixed(0)}g)`}
                         </span>
-                        <button
-                          onClick={() => setPage(10)}
-                          className="mt-2 w-full py-1.5 rounded-lg border border-red-500 text-red-400 font-bold text-[10px]"
-                        >
-                          PRESS ANYWHERE TO STOP
-                        </button>
+                        <div className="flex gap-1.5 w-full mt-2">
+                          <button
+                            onClick={() => {
+                              setPosMM(0.0);
+                              setCollisionAlert(false);
+                              setLowWaxAlert(false);
+                              setPage(10);
+                              setLastEvent('Paused: Retracted carriage to 0.0mm top rest');
+                            }}
+                            className="flex-1 py-1.5 rounded-lg border border-red-500 text-red-400 font-bold text-[10px]"
+                          >
+                            STOP
+                          </button>
+                          <button
+                            onClick={() => {
+                              setPosMM(0.0);
+                              setCollisionAlert(true);
+                              setLowWaxAlert(false);
+                              setPage(10);
+                              setLastEvent(`Wax Collision (${settingValues[8]}g)! Retracted to 0.0mm top rest!`);
+                            }}
+                            className="px-2 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500 text-amber-300 font-bold text-[10px]"
+                            title="Simulate load cell hitting unmelted wax"
+                          >
+                            COLLISION
+                          </button>
+                          <button
+                            onClick={() => {
+                              setPosMM(0.0);
+                              setCollisionAlert(false);
+                              setLowWaxAlert(true);
+                              setPage(10);
+                              setLastEvent(`Low Wax Cutoff at Soft Limit (${settingValues[9]}mm)! Retracted to 0.0mm top rest!`);
+                            }}
+                            className="px-2 py-1.5 rounded-lg bg-orange-500/20 border border-orange-500 text-orange-300 font-bold text-[10px]"
+                            title="Simulate reaching Soft Limit without capacitive sensor triggering"
+                          >
+                            LOW WAX
+                          </button>
+                        </div>
                       </div>
                     )}
 
                     {/* Page 10: Stop Confirm */}
                     {page === 10 && (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-center">
-                        <span className="text-white text-xs font-bold">Abort current dipping?</span>
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-center">
+                        {collisionAlert ? (
+                          <span className="text-red-400 text-[11px] font-bold">Collision ({settingValues[8]}g)! Raised to top</span>
+                        ) : lowWaxAlert ? (
+                          <span className="text-orange-400 text-[11px] font-bold">Low Wax! Pot below Soft Limit</span>
+                        ) : (
+                          <span className="text-amber-300 text-[11px] font-bold">Paused at top rest (0.0mm)</span>
+                        )}
+                        <span className="text-white text-xs font-bold">Abort or Resume dipping?</span>
                         <div className="flex items-center gap-3 w-full px-4">
-                          <button onClick={() => setPage(9)} className="flex-1 py-3 rounded-xl font-bold text-xs text-white" style={{ backgroundColor: ts.outlineBg }}>NO</button>
+                          <button onClick={() => { setCollisionAlert(false); setLowWaxAlert(false); setPage(9); setLastEvent('Resumed dipping from 0.0mm top rest'); }} className="flex-1 py-3 rounded-xl font-bold text-xs text-white" style={{ backgroundColor: ts.outlineBg }}>NO</button>
                           <button 
-                            onClick={() => { setDipAborted(true); setFinalDurationSecs(45); setPage(11); setLastEvent('Dipping cancelled by user'); }} 
+                            onClick={() => { setDipAborted(true); setCollisionAlert(false); setLowWaxAlert(false); setFinalDurationSecs(45); setPage(11); setLastEvent('Dipping cancelled by user'); }} 
                             className="flex-1 py-3 rounded-xl font-bold text-xs bg-red-600 text-white"
                           >
                             YES
@@ -1648,7 +1675,7 @@ export default function App() {
                               Cancelled at {Math.floor(finalDurationSecs / 60)}m {finalDurationSecs % 60}s
                             </span>
                             <button 
-                              onClick={() => { setPage(0); setSubState(0); setDipAborted(false); }} 
+                              onClick={() => { setPage(0); setDipAborted(false); }} 
                               className="w-full mt-2 py-2.5 rounded-xl font-bold text-xs bg-red-800 text-white"
                             >
                               BACK
@@ -1663,7 +1690,7 @@ export default function App() {
                               Completed in {Math.floor(finalDurationSecs / 60)}m {finalDurationSecs % 60}s
                             </span>
                             <button 
-                              onClick={() => { setPage(0); setSubState(0); setDipAborted(false); }} 
+                              onClick={() => { setPage(0); setDipAborted(false); }} 
                               className="w-full mt-2 py-2.5 rounded-xl font-bold text-xs text-black" 
                               style={{ backgroundColor: ts.activeBg }}
                             >
@@ -1680,16 +1707,20 @@ export default function App() {
                         <div className="text-center font-bold text-xs" style={{ color: ts.bannerTxt }}>{settingNames[activeSettingIdx]}</div>
                         <div className="bg-black text-white px-2 py-1 rounded text-center font-mono font-bold text-xs">{numpadVal || '0'}</div>
                         <div className="grid grid-cols-3 gap-1">
-                          {['1','2','3','4','5','6','7','8','9','DEL','0','CLR'].map((k) => (
+                          {['1','2','3','4','5','6','7','8','9', (activeSettingIdx === 8 || activeSettingIdx === 21) ? '+/-' : 'DEL','0','CLR'].map((k) => (
                             <button
                               key={k}
                               onClick={() => {
                                 if (k === 'DEL') setNumpadVal(numpadVal.slice(0, -1));
                                 else if (k === 'CLR') setNumpadVal('');
+                                else if (k === '+/-') {
+                                  if (numpadVal.startsWith('-')) setNumpadVal(numpadVal.slice(1));
+                                  else setNumpadVal('-' + numpadVal);
+                                }
                                 else setNumpadVal(numpadVal + k);
                               }}
                               className="py-1 rounded text-[10px] font-bold text-white"
-                              style={{ backgroundColor: ts.outlineBg }}
+                              style={{ backgroundColor: k === '+/-' ? '#ca8a04' : ts.outlineBg }}
                             >
                               {k}
                             </button>
@@ -1699,11 +1730,21 @@ export default function App() {
                           <button onClick={() => setShowNumpad(false)} className="flex-1 py-1 rounded bg-red-800 text-white font-bold text-[10px]">CAN</button>
                           <button 
                             onClick={() => {
-                              const newArr = [...settingValues];
-                              newArr[activeSettingIdx] = parseInt(numpadVal) || 0;
-                              setSettingValues(newArr);
+                              const parsed = parseInt(numpadVal) || 0;
+                              if (activeSettingIdx === 23) {
+                                if (parsed > 0) {
+                                  setWeight(parsed);
+                                  setScaleFactor(418.5);
+                                  setCalStatus(`Saved! Calibrated to ${parsed}g`);
+                                  setLastEvent(`Calibrated Load Cell slope with ${parsed}g reference weight (Saved to NVS)`);
+                                }
+                              } else {
+                                const newArr = [...settingValues];
+                                newArr[activeSettingIdx] = parsed;
+                                setSettingValues(newArr);
+                                setLastEvent(`Updated ${settingNames[activeSettingIdx]} = ${parsed}`);
+                              }
                               setShowNumpad(false);
-                              setLastEvent(`Updated ${settingNames[activeSettingIdx]} = ${parseInt(numpadVal) || 0}`);
                             }} 
                             className="flex-1 py-1 rounded bg-emerald-700 text-white font-bold text-[10px]"
                           >
@@ -1714,25 +1755,68 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Bottom Banner (15% height = 36px) */}
-                  {page < 9 && (
-                    <div 
-                      onClick={() => {
-                        if (page === 8) { setPage(3); setLastEvent('Exited Wi-Fi Portal'); }
-                        else if (page >= 4 && page <= 7) { setPage(3); setLastEvent('Returned to Settings Hub'); }
-                        else if (subState !== 0) { setSubState(0); setLastEvent('Cancelled Profile Confirmation'); }
-                        else {
-                          const nextP = (page + 1) % 4;
-                          setPage(nextP);
-                          setLastEvent(`Navigated to ${getPageTitle(nextP)}`);
-                        }
-                      }}
-                      className="h-[36px] w-full flex items-center justify-center text-xs font-bold cursor-pointer text-white"
-                      style={{ backgroundColor: ts.outlineBg }}
-                    >
-                      {page === 8 ? 'EXIT PORTAL' : (page >= 4 && page <= 7) ? '< BACK TO HUB' : subState === 0 ? `< ${getPageTitle(page)} >` : 'CANCEL'}
-                    </div>
-                  )}
+                  {/* Persistent 4-Tab Bottom Bar or Sub-Page Back Button (15% height = 36px) */}
+                  {(page < 9 || page >= 12) ? (
+                    (page === 0 || page === 2 || page === 14 || page === 3) ? (
+                      <div className="h-[36px] w-full grid grid-cols-4 text-[11px] font-bold" style={{ backgroundColor: ts.outlineBg }}>
+                        <button
+                          onClick={() => { setPage(0); setLastEvent('Switched to DIP tab'); }}
+                          className="h-full flex items-center justify-center border-r border-black/30"
+                          style={{
+                            backgroundColor: page === 0 ? ts.bannerBg : ts.outlineBg,
+                            color: page === 0 ? ts.bannerTxt : '#ffffff'
+                          }}
+                        >
+                          DIP
+                        </button>
+                        <button
+                          onClick={() => { setPage(2); setLastEvent('Switched to MANUAL tab'); }}
+                          className="h-full flex items-center justify-center border-r border-black/30"
+                          style={{
+                            backgroundColor: page === 2 ? ts.bannerBg : ts.outlineBg,
+                            color: page === 2 ? ts.bannerTxt : '#ffffff'
+                          }}
+                        >
+                          MANUAL
+                        </button>
+                        <button
+                          onClick={() => { setPage(14); setLastEvent('Switched to TOOLS tab'); }}
+                          className="h-full flex items-center justify-center border-r border-black/30"
+                          style={{
+                            backgroundColor: page === 14 ? ts.bannerBg : ts.outlineBg,
+                            color: page === 14 ? ts.bannerTxt : '#ffffff'
+                          }}
+                        >
+                          TOOLS
+                        </button>
+                        <button
+                          onClick={() => { setScrollOffset(0); setPage(3); setLastEvent('Switched to SETUP tab (2-Bucket Hub)'); }}
+                          className="h-full flex items-center justify-center"
+                          style={{
+                            backgroundColor: page === 3 ? ts.bannerBg : ts.outlineBg,
+                            color: page === 3 ? ts.bannerTxt : '#ffffff'
+                          }}
+                        >
+                          SETUP
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => {
+                          setScrollOffset(0);
+                          if (showNumpad) setShowNumpad(false);
+                          else if (page === 13) { setPage(6); setLastEvent('Returned to Scale & Col Settings'); }
+                          else if (page === 30 || page === 31) { setPage(3); setLastEvent('Returned to 2-Bucket Setup Hub'); }
+                          else if (page === 6 || page === 12 || page === 7 || page === 8 || page === 52 || page === 53) { setPage(31); setLastEvent('Returned to 2. MACHINE SETUP'); }
+                          else { setPage(30); setLastEvent('Returned to 1. RECIPE PARAMS'); }
+                        }}
+                        className="h-[36px] w-full flex items-center justify-center text-xs font-bold cursor-pointer text-white"
+                        style={{ backgroundColor: ts.outlineBg }}
+                      >
+                        {page === 13 ? '< BACK TO SENSOR' : (page === 30 || page === 31) ? '< BACK TO SETUP' : (page === 6 || page === 12 || page === 7 || page === 8 || page === 52 || page === 53) ? '< BACK TO MACHINE' : '< BACK TO RECIPE'}
+                      </div>
+                    )
+                  ) : null}
                 </div>
 
                 {/* Touch Simulation Help Footer */}
@@ -1751,45 +1835,45 @@ export default function App() {
                   M5Canvas DisplayManager Test Bench
                 </h3>
                 <p className="text-xs text-neutral-400 mb-4 leading-relaxed">
-                  Test the extracted <code className="text-amber-300 font-mono">DisplayManager</code> class methods directly. Tap buttons on the screen or use quick state shortcuts below.
+                  Test the 4-Tab <code className="text-amber-300 font-mono">DisplayManager</code>, the <strong>2-Bucket Setup Hub</strong> (`1. RECIPE PARAMS` vs `2. MACHINE SETUP`), and the <strong>3-Card Vertical Scroll UI</strong> with subtitle hints.
                 </p>
 
                 <div className="grid grid-cols-2 gap-2 mb-4">
                   <button
-                    onClick={() => { setPage(0); setSubState(0); }}
+                    onClick={() => { setPage(0); setShowNumpad(false); }}
                     className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-medium hover:border-amber-400/50 text-neutral-200"
                   >
                     <Scale className="w-3.5 h-3.5 text-amber-400" />
-                    Weight Page
+                    Dip Launcher
                   </button>
                   <button
-                    onClick={() => { setPage(2); }}
+                    onClick={() => { setPage(14); setShowNumpad(false); }}
                     className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-medium hover:border-amber-400/50 text-neutral-200"
                   >
-                    <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-                    Manual Control
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    Jig &amp; Base Tools
                   </button>
                   <button
-                    onClick={() => { setPage(3); }}
+                    onClick={() => { setScrollOffset(0); setPage(30); setShowNumpad(false); }}
                     className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-medium hover:border-amber-400/50 text-neutral-200"
                   >
-                    <Settings className="w-3.5 h-3.5 text-blue-400" />
-                    Settings Hub
+                    <Sliders className="w-3.5 h-3.5 text-blue-400" />
+                    1. Recipe Params
                   </button>
                   <button
-                    onClick={() => { setPage(8); }}
+                    onClick={() => { setScrollOffset(0); setPage(31); setShowNumpad(false); }}
                     className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-xs font-medium hover:border-amber-400/50 text-neutral-200"
                   >
-                    <Wifi className="w-3.5 h-3.5 text-purple-400" />
-                    Wi-Fi Portal
+                    <Settings className="w-3.5 h-3.5 text-purple-400" />
+                    2. Machine Setup
                   </button>
                 </div>
 
                 <div className="space-y-3 pt-3 border-t border-neutral-800">
                   <div>
-                    <label className="text-xs text-neutral-400 block mb-1">Color Theme Selection</label>
+                    <label className="text-xs text-neutral-400 block mb-1">Upgraded Color Theme Palettes</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {['Original', 'Bee Mine', 'Dark Mode'].map((tName, i) => (
+                      {['Ind. Slate', 'Bee Mine', 'Midnight'].map((tName, i) => (
                         <button
                           key={tName}
                           onClick={() => { setTheme(i); setLastEvent(`Applied Theme: ${tName}`); }}
@@ -1822,20 +1906,52 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Step 1 Verification Status */}
+              {/* Verification Status */}
               <div className="bg-emerald-950/30 border border-emerald-800/40 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-emerald-400 font-semibold text-xs mb-2">
                   <CheckCircle2 className="w-4 h-4" />
-                  STEP 1 Extraction Verification
+                  Latest Firmware Enhancements
                 </div>
                 <ul className="text-xs text-neutral-300 space-y-1.5 list-disc list-inside leading-relaxed">
-                  <li>Created <code className="text-emerald-300 font-mono">DisplayManager.h</code> with state structures, UI event enums & public methods.</li>
-                  <li>Created <code className="text-emerald-300 font-mono">DisplayManager.cpp</code> encapsulating double-buffered <code className="text-emerald-300 font-mono">M5Canvas</code> drawing.</li>
-                  <li>Touch hit-testing extracted into <code className="text-emerald-300 font-mono">updateTouch()</code> returning clean <code className="text-emerald-300 font-mono">UiEvent</code> callbacks.</li>
-                  <li>Zero change to visual layout or pixel dimensions (320x240 M5Canvas).</li>
+                  <li><strong>2-Bucket Setup &amp; 3-Card Scroll UI:</strong> Splits settings into <code className="text-emerald-300 font-mono">1. RECIPE PARAMS</code> and <code className="text-emerald-300 font-mono">2. MACHINE SETUP</code> with 3 tall cards + subtitle hints and a right-hand <code className="text-emerald-300 font-mono">▲ / ▼</code> scroll column.</li>
+                  <li><strong>Upgraded Color Palettes:</strong> Refined <code className="text-emerald-300 font-mono">Ind. Slate</code>, <code className="text-emerald-300 font-mono">Bee Mine</code> (Espresso, Honeycomb &amp; Sage), and <code className="text-emerald-300 font-mono">Midnight</code> OLED themes.</li>
+                  <li><strong>Kerzenkiste 36-Candle Jig Manual:</strong> Full print-ready <code className="text-emerald-300 font-mono">USER_MANUAL.md</code> with Executive Summary, Index, Speed Glossary, and Detailed Reference.</li>
                 </ul>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'manual' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/USER_MANUAL.md</span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Print-Ready Operations &amp; Parameter Manual
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadSingleFile('USER_MANUAL.md', userManualRaw)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  Download
+                </button>
+                <button
+                  onClick={() => copyCode(userManualRaw, 'manual')}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  {copiedFile === 'manual' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedFile === 'manual' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto whitespace-pre-wrap">
+              {userManualRaw}
+            </pre>
           </div>
         )}
 
@@ -1844,10 +1960,10 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/main.cpp</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/main.cpp</span>
               </div>
               <button
-                onClick={() => copyCode(MAIN_CPP_CODE, 'main')}
+                onClick={() => copyCode(mainCppRaw, 'main')}
                 className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
               >
                 {copiedFile === 'main' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1855,7 +1971,7 @@ export default function App() {
               </button>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {MAIN_CPP_CODE}
+              {mainCppRaw}
             </pre>
           </div>
         )}
@@ -1865,10 +1981,10 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/MotorManager.h</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/MotorManager.h</span>
               </div>
               <button
-                onClick={() => copyCode(MOTOR_MANAGER_H_CODE, 'motor')}
+                onClick={() => copyCode(motorManagerHRaw, 'motor')}
                 className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
               >
                 {copiedFile === 'motor' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1876,7 +1992,7 @@ export default function App() {
               </button>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {MOTOR_MANAGER_H_CODE}
+              {motorManagerHRaw}
             </pre>
           </div>
         )}
@@ -1886,10 +2002,10 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/MotorManager.cpp</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/MotorManager.cpp</span>
               </div>
               <button
-                onClick={() => copyCode(MOTOR_MANAGER_CPP_CODE, 'motorcpp')}
+                onClick={() => copyCode(motorManagerCppRaw, 'motorcpp')}
                 className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
               >
                 {copiedFile === 'motorcpp' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1897,7 +2013,7 @@ export default function App() {
               </button>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {MOTOR_MANAGER_CPP_CODE}
+              {motorManagerCppRaw}
             </pre>
           </div>
         )}
@@ -1907,10 +2023,10 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Scale className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/ScaleManager.h</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/ScaleManager.h</span>
               </div>
               <button
-                onClick={() => copyCode(SCALE_MANAGER_H_CODE, 'scale')}
+                onClick={() => copyCode(scaleManagerHRaw, 'scale')}
                 className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
               >
                 {copiedFile === 'scale' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1918,7 +2034,28 @@ export default function App() {
               </button>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {SCALE_MANAGER_H_CODE}
+              {scaleManagerHRaw}
+            </pre>
+          </div>
+        )}
+
+        {activeTab === 'scalecpp' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <Scale className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/src/ScaleManager.cpp</span>
+              </div>
+              <button
+                onClick={() => copyCode(scaleManagerCppRaw, 'scalecpp')}
+                className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
+              >
+                {copiedFile === 'scalecpp' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedFile === 'scalecpp' ? 'Copied ScaleManager.cpp!' : 'Copy ScaleManager.cpp'}
+              </button>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
+              {scaleManagerCppRaw}
             </pre>
           </div>
         )}
@@ -1928,10 +2065,10 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/SensorManager.h</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/SensorManager.h</span>
               </div>
               <button
-                onClick={() => copyCode(SENSOR_MANAGER_H_CODE, 'sensor')}
+                onClick={() => copyCode(sensorManagerHRaw, 'sensor')}
                 className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
               >
                 {copiedFile === 'sensor' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1939,7 +2076,49 @@ export default function App() {
               </button>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {SENSOR_MANAGER_H_CODE}
+              {sensorManagerHRaw}
+            </pre>
+          </div>
+        )}
+
+        {activeTab === 'sound' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <Code2 className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/src/SoundManager.h</span>
+              </div>
+              <button
+                onClick={() => copyCode(soundManagerHRaw, 'sound')}
+                className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
+              >
+                {copiedFile === 'sound' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedFile === 'sound' ? 'Copied SoundManager.h!' : 'Copy SoundManager.h'}
+              </button>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
+              {soundManagerHRaw}
+            </pre>
+          </div>
+        )}
+
+        {activeTab === 'soundcpp' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <Code2 className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/src/SoundManager.cpp</span>
+              </div>
+              <button
+                onClick={() => copyCode(soundManagerCppRaw, 'soundcpp')}
+                className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
+              >
+                {copiedFile === 'soundcpp' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedFile === 'soundcpp' ? 'Copied SoundManager.cpp!' : 'Copy SoundManager.cpp'}
+              </button>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
+              {soundManagerCppRaw}
             </pre>
           </div>
         )}
@@ -1949,10 +2128,10 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/DisplayManager.h</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/DisplayManager.h</span>
               </div>
               <button
-                onClick={() => copyCode(DISPLAY_MANAGER_H_CODE, 'header')}
+                onClick={() => copyCode(displayManagerHRaw, 'header')}
                 className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
               >
                 {copiedFile === 'header' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1960,7 +2139,7 @@ export default function App() {
               </button>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {DISPLAY_MANAGER_H_CODE}
+              {displayManagerHRaw}
             </pre>
           </div>
         )}
@@ -1970,10 +2149,10 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/DisplayManager.cpp</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/DisplayManager.cpp</span>
               </div>
               <button
-                onClick={() => copyCode(DISPLAY_MANAGER_CPP_HIGHLIGHT, 'cpp')}
+                onClick={() => copyCode(displayManagerCppRaw, 'cpp')}
                 className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
               >
                 {copiedFile === 'cpp' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1981,7 +2160,7 @@ export default function App() {
               </button>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {DISPLAY_MANAGER_CPP_HIGHLIGHT}
+              {displayManagerCppRaw}
             </pre>
           </div>
         )}
@@ -1991,7 +2170,7 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Settings className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/PinConfig.h</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/PinConfig.h</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -2021,7 +2200,7 @@ export default function App() {
             <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-mono font-semibold text-white">/SensorManager.cpp</span>
+                <span className="text-xs font-mono font-semibold text-white">/src/SensorManager.cpp</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   PC817 Active-LOW Verified
                 </span>
@@ -2117,38 +2296,11 @@ export default function App() {
             <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-6">
               <h2 className="text-base font-semibold text-white mb-2 flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-amber-400" />
-                Refactoring & Hardware Integration - Phase 2 (STEP 1)
+                Refactoring & Hardware Integration - Phase 2
               </h2>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                The monolithic <code className="text-amber-300 font-mono">main.cpp</code> file previously mixed UI rendering, touch event hit-testing, state management, WiFi web server handling, and preference persistence in a single file. Step 1 cleanly decouples the UI layer into <code className="text-amber-300 font-mono">DisplayManager</code> without blocking display updates or altering any pixel coordinates.
+                The firmware cleanly separates UI rendering, touch hit-testing, stepper motor control, sensor debouncing, and 24-bit load cell calibration across dedicated C++ managers.
               </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-neutral-950 border border-red-900/30 rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-red-400 mb-3 flex items-center gap-2">
-                  <span>❌ Before: Monolithic main.cpp</span>
-                </h3>
-                <ul className="text-xs text-neutral-400 space-y-2 list-disc list-inside">
-                  <li>Global variables for themes, pages, touch states, and coordinates scattered throughout main file.</li>
-                  <li>UI drawing functions directly accessed global state and hardcoded canvas references.</li>
-                  <li>Touch handling logic embedded directly in main <code className="text-neutral-300 font-mono">loop()</code>.</li>
-                  <li>Adding stepper motor or load cell polling risks blocking frame renders.</li>
-                </ul>
-              </div>
-
-              <div className="bg-neutral-950 border border-emerald-900/30 rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2">
-                  <span>✅ Decoupled Modular Architecture</span>
-                </h3>
-                <ul className="text-xs text-neutral-400 space-y-2 list-disc list-inside">
-                  <li><strong className="text-white">MotorManager:</strong> Trinamic TMC2209 single-wire UART configuration with StealthChop2 / SpreadCycle mode switching, 4-stage homing calibration, and lead-screw motion.</li>
-                  <li><strong className="text-white">SensorManager:</strong> Glitch-filtered debouncing for Top Limit Switch (NC) and Capacitive Wax Level Sensor (24V NPN optocoupler).</li>
-                  <li><strong className="text-white">ScaleManager:</strong> HX711 24-bit strain-gauge ADC polling with Exponential Moving Average (EMA) filtering and tare/calibration persistence.</li>
-                  <li><strong className="text-white">DisplayManager:</strong> Double-buffered M5Canvas graphics pipeline with multi-theme support and decoupled touch hit-testing.</li>
-                  <li><strong className="text-white">main.cpp:</strong> Clean non-blocking state machine coordinating dipping cycles, soft limits, and Wi-Fi captive portal.</li>
-                </ul>
-              </div>
             </div>
           </div>
         )}

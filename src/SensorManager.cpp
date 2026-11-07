@@ -1,5 +1,6 @@
 #include "SensorManager.h"
 
+// Initialize sensor states to false (not triggered) and default the wax sensor to Active-LOW
 SensorManager::SensorManager() 
   : _topLimitHit(false), _capSensorTriggered(false), _capActiveLow(true), _lastDebounceTime(0) {}
 
@@ -16,6 +17,7 @@ void SensorManager::begin(bool useInternalPullupForWaxSensor) {
     pinMode(PIN_WAX_LEVEL_SENS, INPUT);
   }
   
+  // Take an initial reading immediately on boot
   update();
 }
 
@@ -23,7 +25,7 @@ bool SensorManager::readRawTopLimit() {
   // Mechanical Home Switch (NC Config):
   // Circuit is closed to GND when switch is NOT pressed -> Pin reads LOW (0V)
   // When switch is pressed/hit, circuit opens -> Internal pull-up pulls to 3.3V (HIGH)
-  // Multi-sample 3-read glitch filter prevents EMI noise from stepper lines
+  // Multi-sample 3-read glitch filter (2-out-of-3 majority vote) prevents EMI noise from stepper lines
   int highCount = 0;
   for (int i = 0; i < 3; i++) {
     if (digitalRead(PIN_TOP_LIMIT_SW) == HIGH) highCount++;
@@ -35,13 +37,13 @@ bool SensorManager::readRawTopLimit() {
 bool SensorManager::readRawCapSensor() {
   /**
    * Wax Level Capacitive Sensor (24V Industrial NPN with Optocoupler):
-   * - At idle (No wax detected): Optocoupler is OFF -> Internal pull-up holds pin at 3.3V (HIGH)
+   * - At idle (No wax detected): Optocoupler is OFF -> External 10k pull-up holds pin at 3.3V (HIGH)
    * - When triggered (Wax detected): Optocoupler transistor turns ON -> Pulls pin to GND (LOW)
    * 
    * Therefore, for standard NPN Optocoupler wiring (_capActiveLow == true):
    * Triggered = (digitalRead == LOW)
    * 
-   * Multi-sample filtering (3 reads) rejects motor PWM noise in the drag chain.
+   * Multi-sample filtering (3 reads with 2us spacing, requiring >=2 matches) rejects motor PWM noise in the drag chain.
    */
   int matchCount = 0;
   int targetLevel = _capActiveLow ? LOW : HIGH;
@@ -54,11 +56,12 @@ bool SensorManager::readRawCapSensor() {
 }
 
 void SensorManager::update() {
-  // Non-blocking 10ms periodic debounce check for UI telemetry
+  // Non-blocking 10ms (100Hz) periodic debounce check used to update UI status indicators in loop()
   if (millis() - _lastDebounceTime >= 10) {
     _lastDebounceTime = millis();
     _topLimitHit = readRawTopLimit();
     _capSensorTriggered = readRawCapSensor();
   }
 }
+
 
