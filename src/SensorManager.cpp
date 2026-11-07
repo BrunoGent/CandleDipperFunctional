@@ -1,7 +1,7 @@
 #include "SensorManager.h"
 
 SensorManager::SensorManager() 
-  : _topLimitHit(false), _capSensorTriggered(false), _capActiveLow(false), _lastDebounceTime(0) {}
+  : _topLimitHit(false), _capSensorTriggered(false), _capActiveLow(true), _lastDebounceTime(0) {}
 
 void SensorManager::begin(bool useInternalPullupForWaxSensor) {
   // Mechanical top switch configured with internal pull-up (NC to GND)

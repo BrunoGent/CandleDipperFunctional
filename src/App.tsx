@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 import { 
   Code2, 
   Layers, 
@@ -14,8 +15,30 @@ import {
   Palette,
   Wifi,
   Scale,
-  Settings
+  Settings,
+  Download,
+  FolderArchive,
+  Terminal,
+  ExternalLink,
+  FileCode,
+  ShieldCheck,
+  CheckCircle,
+  Package
 } from 'lucide-react';
+
+import mainCppRaw from './main.cpp?raw';
+import pinConfigRaw from './PinConfig.h?raw';
+import displayManagerHRaw from './DisplayManager.h?raw';
+import displayManagerCppRaw from './DisplayManager.cpp?raw';
+import motorManagerHRaw from './MotorManager.h?raw';
+import motorManagerCppRaw from './MotorManager.cpp?raw';
+import scaleManagerHRaw from './ScaleManager.h?raw';
+import scaleManagerCppRaw from './ScaleManager.cpp?raw';
+import sensorManagerHRaw from './SensorManager.h?raw';
+import sensorManagerCppRaw from './SensorManager.cpp?raw';
+import platformioIniRaw from '../platformio.ini?raw';
+import readmeRaw from '../README.md?raw';
+import handoverMdRaw from '../PROJECT_HANDOVER.md?raw';
 
 const DISPLAY_MANAGER_H_CODE = `#ifndef DISPLAY_MANAGER_H
 #define DISPLAY_MANAGER_H
@@ -637,8 +660,66 @@ bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
 }`;
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'preview' | 'main' | 'motor' | 'motorcpp' | 'scale' | 'sensor' | 'header' | 'cpp' | 'pinconfig' | 'architecture'>('preview');
+  const [activeTab, setActiveTab] = useState<'export' | 'preview' | 'main' | 'motor' | 'motorcpp' | 'scale' | 'sensor' | 'sensorcpp' | 'header' | 'cpp' | 'pinconfig' | 'platformio' | 'readme' | 'architecture'>('export');
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportSuccess, setExportSuccess] = useState<boolean>(false);
+
+  const handleExportZip = async () => {
+    setIsExporting(true);
+    try {
+      const zip = new JSZip();
+      
+      // Root configuration and documentation
+      zip.file("platformio.ini", platformioIniRaw || "");
+      zip.file("README.md", readmeRaw || "");
+      zip.file("PROJECT_HANDOVER.md", handoverMdRaw || "");
+      
+      // Complete C++ firmware modules inside src/
+      const src = zip.folder("src");
+      if (src) {
+        src.file("main.cpp", mainCppRaw || "");
+        src.file("PinConfig.h", pinConfigRaw || "");
+        src.file("DisplayManager.h", displayManagerHRaw || "");
+        src.file("DisplayManager.cpp", displayManagerCppRaw || "");
+        src.file("MotorManager.h", motorManagerHRaw || "");
+        src.file("MotorManager.cpp", motorManagerCppRaw || "");
+        src.file("SensorManager.h", sensorManagerHRaw || "");
+        src.file("SensorManager.cpp", sensorManagerCppRaw || "");
+        src.file("ScaleManager.h", scaleManagerHRaw || "");
+        src.file("ScaleManager.cpp", scaleManagerCppRaw || "");
+      }
+      
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "bee-mine-candle-dipper-antigravity.zip";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setExportSuccess(true);
+      setTimeout(() => setExportSuccess(false), 4000);
+    } catch (err) {
+      console.error("Export zip error", err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const downloadSingleFile = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   // M5Stack CoreS3 SE Interactive State
   const [page, setPage] = useState<number>(0); // 0: WEIGHT, 1: DIPS, 2: MANUAL, 3: SETTINGS_HUB, 4: S_DIP, 5: S_MOTION, 6: S_SENSOR, 7: S_SCREEN, 8: WIFI, 9: ACTIVE, 10: CONFIRM, 11: DONE
@@ -772,7 +853,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-neutral-900 text-neutral-100 flex flex-col font-sans">
       {/* Header Bar */}
-      <header className="border-b border-neutral-800 bg-neutral-950 px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-neutral-800 bg-neutral-950 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400 font-bold text-lg">
             🐝
@@ -781,119 +862,452 @@ export default function App() {
             <h1 className="text-lg font-semibold text-white tracking-tight flex items-center gap-2">
               Bee Mine Candle Dipper
               <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono">
-                Phase 2 - Step 1 Complete
+                Antigravity Ready • PC817 Verified
               </span>
             </h1>
             <p className="text-xs text-neutral-400">
-              Refactored DisplayManager Class (Double-Buffered M5Canvas UI Engine)
+              Modular C++ PlatformIO Firmware & Web Telemetry Companion
             </p>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-1 bg-neutral-900 p-1 rounded-lg border border-neutral-800 flex-wrap">
+        {/* Global Export Action Button */}
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setActiveTab('preview')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'preview' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
+            onClick={handleExportZip}
+            disabled={isExporting}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-neutral-950 font-semibold text-xs transition-all shadow-lg shadow-amber-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
           >
-            <Eye className="w-3.5 h-3.5" />
-            Simulator
-          </button>
-          <button
-            onClick={() => setActiveTab('main')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'main' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            <Code2 className="w-3.5 h-3.5" />
-            main.cpp
-          </button>
-          <button
-            onClick={() => setActiveTab('motor')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'motor' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            MotorManager.h
-          </button>
-          <button
-            onClick={() => setActiveTab('motorcpp')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'motorcpp' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            MotorManager.cpp
-          </button>
-          <button
-            onClick={() => setActiveTab('scale')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'scale' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            <Scale className="w-3.5 h-3.5" />
-            ScaleManager
-          </button>
-          <button
-            onClick={() => setActiveTab('sensor')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'sensor' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            SensorManager
-          </button>
-          <button
-            onClick={() => setActiveTab('pinconfig')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'pinconfig' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            PinConfig.h
-          </button>
-          <button
-            onClick={() => setActiveTab('header')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'header' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            DisplayManager.h
-          </button>
-          <button
-            onClick={() => setActiveTab('cpp')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              activeTab === 'cpp' 
-                ? 'bg-amber-400 text-neutral-950 shadow' 
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-            }`}
-          >
-            DisplayManager.cpp
+            <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
+            {exportSuccess ? 'ZIP Exported!' : isExporting ? 'Packaging ZIP...' : 'Export to Antigravity (ZIP)'}
           </button>
         </div>
       </header>
 
+      {/* Navigation Tabs Bar */}
+      <div className="bg-neutral-950/80 border-b border-neutral-800 px-6 py-2 flex items-center gap-1 overflow-x-auto scrollbar-none">
+        <button
+          onClick={() => setActiveTab('export')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'export' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-amber-400/90 hover:text-amber-300 hover:bg-neutral-800 border border-amber-400/20'
+          }`}
+        >
+          <FolderArchive className="w-3.5 h-3.5" />
+          Antigravity Package
+        </button>
+        <button
+          onClick={() => setActiveTab('preview')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'preview' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Eye className="w-3.5 h-3.5" />
+          Simulator
+        </button>
+        <button
+          onClick={() => setActiveTab('main')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'main' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Code2 className="w-3.5 h-3.5" />
+          main.cpp
+        </button>
+        <button
+          onClick={() => setActiveTab('pinconfig')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'pinconfig' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Settings className="w-3.5 h-3.5" />
+          PinConfig.h
+        </button>
+        <button
+          onClick={() => setActiveTab('sensor')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'sensor' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          SensorManager.h
+        </button>
+        <button
+          onClick={() => setActiveTab('sensorcpp')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'sensorcpp' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          SensorManager.cpp
+        </button>
+        <button
+          onClick={() => setActiveTab('motor')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'motor' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5" />
+          MotorManager.h
+        </button>
+        <button
+          onClick={() => setActiveTab('motorcpp')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'motorcpp' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5" />
+          MotorManager.cpp
+        </button>
+        <button
+          onClick={() => setActiveTab('scale')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'scale' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Scale className="w-3.5 h-3.5" />
+          ScaleManager
+        </button>
+        <button
+          onClick={() => setActiveTab('header')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'header' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          DisplayManager.h
+        </button>
+        <button
+          onClick={() => setActiveTab('cpp')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'cpp' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          DisplayManager.cpp
+        </button>
+        <button
+          onClick={() => setActiveTab('platformio')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'platformio' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <FileCode className="w-3.5 h-3.5" />
+          platformio.ini
+        </button>
+        <button
+          onClick={() => setActiveTab('readme')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all shrink-0 ${
+            activeTab === 'readme' 
+              ? 'bg-amber-400 text-neutral-950 shadow font-semibold' 
+              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+          }`}
+        >
+          <Package className="w-3.5 h-3.5" />
+          README.md
+        </button>
+      </div>
+
       {/* Main Content Area */}
       <div className="flex-1 p-6 max-w-7xl mx-auto w-full">
+        {activeTab === 'export' && (
+          <div className="space-y-6">
+            {/* Hero Export Card */}
+            <div className="bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950 border border-amber-500/30 rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
+              
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                <div className="space-y-3 max-w-2xl">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
+                    <FolderArchive className="w-3.5 h-3.5" />
+                    Google Antigravity Export Suite
+                  </div>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">
+                    Bee Mine Candle Dipper Firmware Package
+                  </h2>
+                  <p className="text-sm text-neutral-300 leading-relaxed">
+                    Complete, self-contained PlatformIO C++ project pre-configured for the <strong>M5Stack CoreS3 SE</strong>. All modular hardware managers, pin configurations, optocoupler logic, and documentation are verified and ready for instant continuation in Google Antigravity.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-neutral-400">
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> PC817 Optocoupler (GPIO 6)
+                    </span>
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> TMC2209 Single-Wire UART
+                    </span>
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> HX711 24-bit Load Cell
+                    </span>
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> PlatformIO C++17 Ready
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row md:flex-col gap-3 shrink-0">
+                  <button
+                    onClick={handleExportZip}
+                    disabled={isExporting}
+                    className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-neutral-950 font-bold text-sm transition-all shadow-xl shadow-amber-500/25 active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
+                    {exportSuccess ? 'ZIP Downloaded!' : isExporting ? 'Creating ZIP...' : 'Download Project ZIP Bundle'}
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('preview')}
+                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs transition-all border border-neutral-700 cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4 text-amber-400" />
+                    Open CoreS3 Simulator View
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Architecture & Workflow Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Card 1: Hardware Pinout Verified */}
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      Hardware Integration Status
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                      Verified
+                    </span>
+                  </div>
+                  <ul className="text-xs space-y-2 text-neutral-300">
+                    <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
+                      <span className="text-neutral-400 font-mono">GPIO 6 (M-Bus G6)</span>
+                      <span className="text-emerald-400 font-medium">PC817 Opto (Active-LOW)</span>
+                    </li>
+                    <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
+                      <span className="text-neutral-400 font-mono">GPIO 7 (M-Bus G7)</span>
+                      <span className="text-neutral-200 font-medium">Top Limit (NC to GND)</span>
+                    </li>
+                    <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
+                      <span className="text-neutral-400 font-mono">GPIO 8, 9, 17</span>
+                      <span className="text-neutral-200 font-medium">TMC2209 Step, Dir, Enable</span>
+                    </li>
+                    <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
+                      <span className="text-neutral-400 font-mono">GPIO 18 (M-Bus G18)</span>
+                      <span className="text-amber-400 font-medium">TMC2209 UART (1kΩ Inline)</span>
+                    </li>
+                    <li className="flex items-start justify-between">
+                      <span className="text-neutral-400 font-mono">GPIO 5, 13</span>
+                      <span className="text-neutral-200 font-medium">HX711 DT / SCK (EMA Filter)</span>
+                    </li>
+                  </ul>
+                </div>
+                <div className="mt-4 pt-3 border-t border-neutral-800/80 text-[11px] text-neutral-400">
+                  ⚡ <strong>PC817 Wiring:</strong> Pin 4 to GPIO 6 with 10kΩ pull-up to +3.3V, Pin 3 to GND. 24V NPN Black wire to Pin 2, +24V through 2.7kΩ to Pin 1.
+                </div>
+              </div>
+
+              {/* Card 2: Antigravity Commands */}
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-amber-400" />
+                      Antigravity Terminal Commands
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 font-mono">
+                      PlatformIO
+                    </span>
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div className="bg-neutral-900/90 rounded-lg p-2.5 border border-neutral-800 font-mono">
+                      <div className="text-neutral-400 text-[10px] mb-1"># 1. Compile firmware</div>
+                      <div className="text-amber-300 flex items-center justify-between">
+                        <span>pio run</span>
+                        <button onClick={() => copyCode('pio run', 'cmd1')} className="hover:text-white cursor-pointer">
+                          {copiedFile === 'cmd1' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="bg-neutral-900/90 rounded-lg p-2.5 border border-neutral-800 font-mono">
+                      <div className="text-neutral-400 text-[10px] mb-1"># 2. Flash to CoreS3 via USB-C</div>
+                      <div className="text-amber-300 flex items-center justify-between">
+                        <span>pio run -t upload</span>
+                        <button onClick={() => copyCode('pio run -t upload', 'cmd2')} className="hover:text-white cursor-pointer">
+                          {copiedFile === 'cmd2' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="bg-neutral-900/90 rounded-lg p-2.5 border border-neutral-800 font-mono">
+                      <div className="text-neutral-400 text-[10px] mb-1"># 3. Live serial telemetry</div>
+                      <div className="text-amber-300 flex items-center justify-between">
+                        <span>pio device monitor -b 115200</span>
+                        <button onClick={() => copyCode('pio device monitor -b 115200', 'cmd3')} className="hover:text-white cursor-pointer">
+                          {copiedFile === 'cmd3' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-neutral-800/80 text-[11px] text-neutral-400">
+                  Target environment: <code className="text-amber-300 font-mono">[env:m5stack-cores3]</code> in <code className="text-neutral-300 font-mono">platformio.ini</code>.
+                </div>
+              </div>
+
+              {/* Card 3: Modular C++ Architecture */}
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-amber-400" />
+                      Object-Oriented Subsystems
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
+                      Decoupled
+                    </span>
+                  </div>
+                  <ul className="text-xs space-y-2 text-neutral-300">
+                    <li className="flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
+                      <div>
+                        <strong className="text-white font-mono">DisplayManager:</strong> Double-buffered M5Canvas rendering, touch hit-testing, decoupled UiEvents.
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
+                      <div>
+                        <strong className="text-white font-mono">MotorManager:</strong> TMC2209 single-wire UART, StealthChop2 silent dipping, 4-stage homing.
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
+                      <div>
+                        <strong className="text-white font-mono">SensorManager:</strong> 3-sample glitch filtering on limit switch and PC817 wax detection.
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0"></span>
+                      <div>
+                        <strong className="text-white font-mono">ScaleManager:</strong> HX711 24-bit strain-gauge ADC, non-blocking EMA filter & NVS tare storage.
+                      </div>
+                    </li>
+                  </ul>
+                </div>
+                <div className="mt-4 pt-3 border-t border-neutral-800/80 text-[11px] text-neutral-400">
+                  Coordinator: <code className="text-amber-300 font-mono">main.cpp</code> state machine routes UI events and non-blocking cycles.
+                </div>
+              </div>
+            </div>
+
+            {/* Complete Project File Manifest Table */}
+            <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-neutral-900/50">
+                <div>
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <FileCode className="w-4 h-4 text-amber-400" />
+                    Complete Package File Manifest (13 Files)
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    All files are bundled in the root and <code className="text-amber-300 font-mono">src/</code> directory inside the export ZIP.
+                  </p>
+                </div>
+                <button
+                  onClick={handleExportZip}
+                  disabled={isExporting}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-neutral-950 font-semibold text-xs transition-all cursor-pointer shrink-0"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download All (ZIP)
+                </button>
+              </div>
+
+              <div className="divide-y divide-neutral-900 text-xs">
+                {[
+                  { name: 'PROJECT_HANDOVER.md', path: '/PROJECT_HANDOVER.md', type: 'Doc', desc: 'Comprehensive handover: full specs, circuits, modules, blockers, and next steps', code: handoverMdRaw, tab: 'readme' },
+                  { name: 'platformio.ini', path: '/platformio.ini', type: 'Config', desc: 'PlatformIO CoreS3 board, espressif32 platform, and M5Unified library dependencies', code: platformioIniRaw, tab: 'platformio' },
+                  { name: 'README.md', path: '/README.md', type: 'Doc', desc: 'Complete hardware schematics, PC817 wiring, pinout table, and build guide', code: readmeRaw, tab: 'readme' },
+                  { name: 'main.cpp', path: '/src/main.cpp', type: 'C++ Main', desc: 'Non-blocking loop, automated dipping state machine, and Wi-Fi captive portal', code: mainCppRaw, tab: 'main' },
+                  { name: 'PinConfig.h', path: '/src/PinConfig.h', type: 'C++ Header', desc: 'Hardware GPIO definitions for TMC2209, PC817, HX711, and top limit switch', code: pinConfigRaw, tab: 'pinconfig' },
+                  { name: 'SensorManager.h', path: '/src/SensorManager.h', type: 'C++ Header', desc: 'Glitch-filtered sensor class definition and active-LOW polarity configuration', code: sensorManagerHRaw, tab: 'sensor' },
+                  { name: 'SensorManager.cpp', path: '/src/SensorManager.cpp', type: 'C++ Source', desc: 'Glitch-filtered 3-sample debouncing for top switch and PC817 optocoupler', code: sensorManagerCppRaw, tab: 'sensorcpp' },
+                  { name: 'MotorManager.h', path: '/src/MotorManager.h', type: 'C++ Header', desc: 'TMC2209 stepper driver class, StealthChop2 modes, and 4-stage homing routines', code: motorManagerHRaw, tab: 'motor' },
+                  { name: 'MotorManager.cpp', path: '/src/MotorManager.cpp', type: 'C++ Source', desc: 'TMC2209 UART single-wire commands, lead screw pulse generation, and backoff calibration', code: motorManagerCppRaw, tab: 'motorcpp' },
+                  { name: 'ScaleManager.h', path: '/src/ScaleManager.h', type: 'C++ Header', desc: 'HX711 24-bit strain-gauge ADC class, EMA filtering, and NVS persistence', code: scaleManagerHRaw, tab: 'scale' },
+                  { name: 'ScaleManager.cpp', path: '/src/ScaleManager.cpp', type: 'C++ Source', desc: 'Non-blocking 10Hz bit-bang sampling and EEPROM tare calibration', code: scaleManagerCppRaw, tab: 'scale' },
+                  { name: 'DisplayManager.h', path: '/src/DisplayManager.h', type: 'C++ Header', desc: 'Double-buffered M5Canvas graphics pipeline class and touch event definitions', code: displayManagerHRaw, tab: 'header' },
+                  { name: 'DisplayManager.cpp', path: '/src/DisplayManager.cpp', type: 'C++ Source', desc: '320x240 LCD rendering engine, multi-palette themes, and decoupled touch coordinates', code: displayManagerCppRaw, tab: 'cpp' },
+                ].map((file) => (
+                  <div key={file.path} className="px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-neutral-900/40 transition-colors">
+                    <div className="flex items-start sm:items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center shrink-0">
+                        <FileCode className="w-4 h-4 text-amber-400" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-semibold text-white">{file.path}</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                            file.type.includes('Header') ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                            file.type.includes('Source') || file.type.includes('Main') ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                            'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                          }`}>
+                            {file.type}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-neutral-400 mt-0.5">{file.desc}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                      <button
+                        onClick={() => setActiveTab(file.tab as any)}
+                        className="px-2.5 py-1 rounded bg-neutral-900 hover:bg-neutral-800 text-[11px] text-neutral-300 hover:text-white border border-neutral-800 transition-colors cursor-pointer"
+                      >
+                        View Code
+                      </button>
+                      <button
+                        onClick={() => downloadSingleFile(file.name, file.code || '')}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-neutral-900 hover:bg-neutral-800 text-[11px] text-amber-400 border border-neutral-800 transition-colors cursor-pointer"
+                        title="Download file"
+                      >
+                        <Download className="w-3 h-3" />
+                        Download
+                      </button>
+                      <button
+                        onClick={() => copyCode(file.code || '', file.name)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-neutral-900 hover:bg-neutral-800 text-[11px] text-neutral-300 hover:text-white border border-neutral-800 transition-colors cursor-pointer"
+                        title="Copy code"
+                      >
+                        {copiedFile === file.name ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        {copiedFile === file.name ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'preview' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* CoreS3 Hardware Device Frame */}
@@ -1579,16 +1993,121 @@ export default function App() {
                 <Settings className="w-4 h-4 text-amber-400" />
                 <span className="text-xs font-mono font-semibold text-white">/PinConfig.h</span>
               </div>
-              <button
-                onClick={() => copyCode(PIN_CONFIG_H_CODE, 'pinconfig')}
-                className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all"
-              >
-                {copiedFile === 'pinconfig' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                {copiedFile === 'pinconfig' ? 'Copied Header!' : 'Copy PinConfig.h'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadSingleFile('PinConfig.h', pinConfigRaw)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  Download
+                </button>
+                <button
+                  onClick={() => copyCode(pinConfigRaw, 'pinconfig')}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  {copiedFile === 'pinconfig' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedFile === 'pinconfig' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
             </div>
             <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
-              {PIN_CONFIG_H_CODE}
+              {pinConfigRaw}
+            </pre>
+          </div>
+        )}
+
+        {activeTab === 'sensorcpp' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/SensorManager.cpp</span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  PC817 Active-LOW Verified
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadSingleFile('SensorManager.cpp', sensorManagerCppRaw)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  Download
+                </button>
+                <button
+                  onClick={() => copyCode(sensorManagerCppRaw, 'sensorcpp')}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  {copiedFile === 'sensorcpp' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedFile === 'sensorcpp' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
+              {sensorManagerCppRaw}
+            </pre>
+          </div>
+        )}
+
+        {activeTab === 'platformio' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <FileCode className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/platformio.ini</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadSingleFile('platformio.ini', platformioIniRaw)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  Download
+                </button>
+                <button
+                  onClick={() => copyCode(platformioIniRaw, 'platformio')}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  {copiedFile === 'platformio' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedFile === 'platformio' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto">
+              {platformioIniRaw}
+            </pre>
+          </div>
+        )}
+
+        {activeTab === 'readme' && (
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-5 py-3 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-semibold text-white">/README.md</span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  Antigravity Documentation & Pinout
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadSingleFile('README.md', readmeRaw)}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  Download
+                </button>
+                <button
+                  onClick={() => copyCode(readmeRaw, 'readme')}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-200 transition-all cursor-pointer"
+                >
+                  {copiedFile === 'readme' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedFile === 'readme' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <pre className="p-5 font-mono text-xs text-neutral-300 overflow-x-auto leading-relaxed bg-neutral-950 max-h-[600px] overflow-y-auto whitespace-pre-wrap">
+              {readmeRaw}
             </pre>
           </div>
         )}

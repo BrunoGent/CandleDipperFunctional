@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for packaging and exporting the complete Bee Mine Candle Dipper M5Stack CoreS3 firmware and companion application for Google Antigravity. Covers self-contained PlatformIO project structure, C++ component packaging, hardware wiring documentation, and export utilities.",
+  "updatedAt": "2026-11-07T00:18:33.546100419Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
