@@ -81,6 +81,7 @@ public:
 
   // Sets speaker volume from 0% (muted) to 100% (max 255 on AW88298 I2S amp)
   void setVolume(int volumePercent);
+  void setVolumePercent(int volumePercent) { setVolume(volumePercent); }
   int getVolume() const { return _volumePercent; }
 
   // Non-blocking melody players (calling any of these immediately interrupts any playing tune)

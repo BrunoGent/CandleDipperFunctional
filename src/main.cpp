@@ -1038,7 +1038,7 @@ void loop() {
 
     case UI_EVENT_VOLUME_CHANGED:
       prefs.putInt("vol", data.s_volume);
-      soundMgr.setVolumePercent(data.s_volume);
+      soundMgr.setVolume(data.s_volume);
       if (data.s_volume > 0) {
         soundMgr.playBeep(1047, 60); // Short C6 feedback chirp at the newly selected volume
       }
