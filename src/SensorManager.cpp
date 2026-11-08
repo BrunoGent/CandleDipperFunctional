@@ -1,11 +1,11 @@
 #include "SensorManager.h"
 
-// Initialize sensor states to false (not triggered) and default the wax sensor to Active-LOW
+// Initialize sensor states to false (not triggered), default wax sensor to Active-LOW, and top limit to Active-HIGH
 SensorManager::SensorManager() 
-  : _topLimitHit(false), _capSensorTriggered(false), _capActiveLow(true), _lastDebounceTime(0) {}
+  : _topLimitHit(false), _capSensorTriggered(false), _capActiveLow(true), _topLimitActiveHigh(true), _lastDebounceTime(0) {}
 
 void SensorManager::begin(bool useInternalPullupForWaxSensor) {
-  // Mechanical top switch configured with internal pull-up (NC to GND)
+  // Top switch configured with internal pull-up (NC microswitch or optical endstop)
   pinMode(PIN_TOP_LIMIT_SW, INPUT_PULLUP);
   
   // Capacitive wax sensor (via 24V -> 3.3V Optocoupler):
@@ -22,16 +22,17 @@ void SensorManager::begin(bool useInternalPullupForWaxSensor) {
 }
 
 bool SensorManager::readRawTopLimit() {
-  // Mechanical Home Switch (NC Config):
-  // Circuit is closed to GND when switch is NOT pressed -> Pin reads LOW (0V)
-  // When switch is pressed/hit, circuit opens -> Internal pull-up pulls to 3.3V (HIGH)
+  // Top Limit Switch / Optical Endstop:
+  // - Default Active-HIGH (_topLimitActiveHigh == true):
+  //   Unpressed/unblocked beam = LOW; Triggered/beam blocked = HIGH
   // Multi-sample 3-read glitch filter (2-out-of-3 majority vote) prevents EMI noise from stepper lines
-  int highCount = 0;
+  int matchCount = 0;
+  int targetLevel = _topLimitActiveHigh ? HIGH : LOW;
   for (int i = 0; i < 3; i++) {
-    if (digitalRead(PIN_TOP_LIMIT_SW) == HIGH) highCount++;
+    if (digitalRead(PIN_TOP_LIMIT_SW) == targetLevel) matchCount++;
     delayMicroseconds(2);
   }
-  return (highCount >= 2);
+  return (matchCount >= 2);
 }
 
 bool SensorManager::readRawCapSensor() {

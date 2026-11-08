@@ -819,6 +819,9 @@ export default function App() {
                     {page === 2 ? (
                       <>
                         <span>POS: {posMM.toFixed(1)}mm</span>
+                        <span className={`text-[11px] font-bold ${limitSwitch ? 'text-red-400' : capSensor ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {limitSwitch ? 'TOP: HIT' : capSensor ? 'WAX: HIT' : 'TOP: OPEN'}
+                        </span>
                         <span>WT: {weight.toFixed(0)}g</span>
                       </>
                     ) : page === 14 ? (

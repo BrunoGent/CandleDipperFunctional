@@ -41,10 +41,14 @@ public:
   void setCapSensorActiveLow(bool activeLow) { _capActiveLow = activeLow; }
   bool isCapSensorActiveLow() const { return _capActiveLow; }
 
+  void setTopLimitActiveHigh(bool activeHigh) { _topLimitActiveHigh = activeHigh; }
+  bool isTopLimitActiveHigh() const { return _topLimitActiveHigh; }
+
 private:
   bool _topLimitHit;              // Cached debounced state of the top limit switch
   bool _capSensorTriggered;       // Cached debounced state of the capacitive wax sensor
   bool _capActiveLow;             // Polarity flag: standard NPN optocoupler pulls pin LOW when triggered
+  bool _topLimitActiveHigh;       // Polarity flag: NC mechanical or active-high optical pulls HIGH when hit
   unsigned long _lastDebounceTime;// Timestamp (ms) of the last periodic update() poll
 };
 

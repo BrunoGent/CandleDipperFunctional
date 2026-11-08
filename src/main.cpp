@@ -849,14 +849,21 @@ void loop() {
         }
       }
     } else if (!data.isHomingActive && !data.isDipBotActive) {
-      // When idle on Manual page, refresh the top banner telemetry at 4Hz if weight or position changes
+      // When idle on Manual page, refresh telemetry at 10Hz if weight, position, or sensor states change
       motorMgr.stopMotor();
       static unsigned long lastScaleRefresh = 0;
-      if (millis() - lastScaleRefresh >= 250) {
+      static bool lastLimitDisplayed = false;
+      static bool lastCapDisplayed = false;
+      if (millis() - lastScaleRefresh >= 100) {
         lastScaleRefresh = millis();
-        if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || abs(data.currentPosition - lastPosDisplayed) >= 0.1f) {
+        if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || 
+            abs(data.currentPosition - lastPosDisplayed) >= 0.1f ||
+            data.limitSwitchOn != lastLimitDisplayed ||
+            data.capSensorOn != lastCapDisplayed) {
           lastWtDisplayed = data.currentWeight;
           lastPosDisplayed = data.currentPosition;
+          lastLimitDisplayed = data.limitSwitchOn;
+          lastCapDisplayed = data.capSensorOn;
           display.markPageChanged(true);
         }
       }

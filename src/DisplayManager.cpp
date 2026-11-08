@@ -295,6 +295,22 @@ void DisplayManager::drawTopBanner() {
       canvas.drawString(posStr, 10, bannerHeight / 2);
       canvas.setTextDatum(middle_right); 
       canvas.drawString(wtStr, canvas.width() - 10, bannerHeight / 2);
+
+      if (data.currentPage == PAGE_MANUAL) {
+        canvas.setTextDatum(middle_center);
+        canvas.setTextSize(1.5);
+        if (data.limitSwitchOn) {
+          canvas.setTextColor(canvas.color565(255, 60, 60), c_banner);
+          canvas.drawString("TOP: HIT", 160, bannerHeight / 2);
+        } else if (data.capSensorOn) {
+          canvas.setTextColor(canvas.color565(255, 180, 0), c_banner);
+          canvas.drawString("WAX: HIT", 160, bannerHeight / 2);
+        } else {
+          canvas.setTextColor(canvas.color565(40, 160, 40), c_banner);
+          canvas.drawString("TOP: OPEN", 160, bannerHeight / 2);
+        }
+        canvas.setTextSize(2.0);
+      }
   } else if (data.currentPage == PAGE_JIG_TOOLS) {
       canvas.setTextSize(1.6);
       char waxStr[32]; char baseStr[32];
