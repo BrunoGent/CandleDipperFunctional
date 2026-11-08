@@ -856,7 +856,7 @@ void loop() {
       static bool lastCapDisplayed = false;
       if (millis() - lastScaleRefresh >= 100) {
         lastScaleRefresh = millis();
-        if (abs(data.currentWeight - lastWtDisplayed) >= 0.2f || 
+        if (abs(data.currentWeight - lastWtDisplayed) >= 0.1f || 
             abs(data.currentPosition - lastPosDisplayed) >= 0.1f ||
             data.limitSwitchOn != lastLimitDisplayed ||
             data.capSensorOn != lastCapDisplayed) {

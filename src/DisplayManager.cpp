@@ -290,7 +290,11 @@ void DisplayManager::drawTopBanner() {
   if (data.currentPage == PAGE_MANUAL || data.currentPage == PAGE_SCALE_CAL) {
       char posStr[32]; char wtStr[32];
       snprintf(posStr, sizeof(posStr), "POS: %d mm", (int)data.currentPosition);
-      snprintf(wtStr, sizeof(wtStr), "WT: %d g", (int)roundf(data.currentWeight));
+      if (fabsf(data.currentWeight) < 1000.0f) {
+        snprintf(wtStr, sizeof(wtStr), "WT: %.1f g", data.currentWeight);
+      } else {
+        snprintf(wtStr, sizeof(wtStr), "WT: %d g", (int)roundf(data.currentWeight));
+      }
       canvas.setTextDatum(middle_left); 
       canvas.drawString(posStr, 10, bannerHeight / 2);
       canvas.setTextDatum(middle_right); 
