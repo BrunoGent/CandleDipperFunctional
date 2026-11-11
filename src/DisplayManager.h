@@ -105,6 +105,7 @@ struct DisplayData {
   int s_extractSpeed = 20;   // s20: Extraction speed (mm/s) while lifting candles out of wax until base clears (0 = s_upSpeed)
   int s_dripOffset = 15;     // s21: Drip-off pause position relative to wax surface in mm (+ = above wax, - = below, 0 = off)
   int s_dripTime = 3;        // s22: Drip-off pause duration in seconds (0 = disabled)
+  int s_maxDips = 60;        // s24: Safety limit - Weight mode stops with an alert after this many dips even if the target weight is not reached
   bool meltBasesEnabled = false; // Checkbox option: if true, melts candle bases as the final stage of dipping
   bool isMotorEnabled = true; // Motor power enable/disable toggle
   int s_brightness = 50;     // Screen backlight brightness (1 to 99%)
@@ -132,6 +133,9 @@ struct DisplayData {
   bool dipWasAborted = false;             // True if user cancelled the dipping process early
   bool collisionTriggered = false;        // True if PAGE_STOP_CONFIRM was triggered by load-cell collision detection
   bool lowWaxTriggered = false;           // True if PAGE_STOP_CONFIRM was triggered by reaching s_softLimit without sensing wax
+  bool faultTriggered = false;            // True if PAGE_STOP_CONFIRM was triggered by a machine fault (see faultText)
+  String faultText = "";                  // One-line description of the fault shown on PAGE_STOP_CONFIRM
+  bool maxDipsTriggered = false;          // True if a Weight-mode run was ended by the s_maxDips safety limit
   int currentDipCount = 0;                // Current dip number (1, 2, ... N)
   String currentPhaseText = "Starting...";// Status text shown on active dip screen (e.g., "Dip 1: Lowering...")
   String calStatusText = "Step 1: Unload scale & tap ZERO"; // Status guidance on Scale Calibration page

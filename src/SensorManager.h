@@ -19,6 +19,22 @@
  * ============================================================================
  */
 
+// Time-qualified debounce for the motion loops: update() returns true only once the raw input has been
+// seen active on every poll for at least holdUs microseconds. A single noise spike from the stepper
+// wiring therefore cannot end a move or be recorded as the wax level.
+class Debounce {
+public:
+  bool update(bool rawActive, uint32_t holdUs = 2000) {
+    if (!rawActive) { _active = false; return false; }
+    if (!_active) { _active = true; _sinceUs = micros(); return false; }
+    return (micros() - _sinceUs) >= holdUs;
+  }
+  void reset() { _active = false; }
+private:
+  bool _active = false;
+  uint32_t _sinceUs = 0;
+};
+
 class SensorManager {
 public:
   SensorManager();

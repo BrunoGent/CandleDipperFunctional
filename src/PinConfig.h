@@ -21,7 +21,9 @@
 // --- HX711 Load Cell Amplifier (Drag Chain) ---
 // 24-bit ADC measuring the weight of the candle jig to determine when target candle weight is reached.
 #define PIN_HX711_DT          5   // Scale Serial Data Out (DOUT): goes LOW when a new 24-bit conversion is ready
-#define PIN_HX711_SCK        13   // Scale Serial Clock (PD_SCK): pulsed 25 times by ESP32 to shift out 24 bits + set Gain 128
+// NOTE: GPIO 13 must NOT be used here. On the CoreS3 / CoreS3 SE it is the I2S audio data line to the
+// built-in speaker amplifier, so the speaker driver takes the pin over and the HX711 never sees a clock.
+#define PIN_HX711_SCK        10   // Scale Serial Clock (PD_SCK): pulsed 25 times by ESP32 to shift out 24 bits + set Gain 128
 
 #endif // PIN_CONFIG_H
 
