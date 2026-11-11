@@ -573,25 +573,25 @@ export default function App() {
                       Hardware Integration Status
                     </h3>
                     <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                      Verified
+                      Pending bench test
                     </span>
                   </div>
                   <ul className="text-xs space-y-2 text-neutral-300">
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 13 (Cap Sensor)</span>
-                      <span className="text-emerald-400 font-medium">Wax Surface Detector</span>
+                      <span className="text-neutral-400 font-mono">GPIO 6 (Cap Sensor)</span>
+                      <span className="text-emerald-400 font-medium">Wax Surface Detector (PC817)</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 7 (Optical Home)</span>
+                      <span className="text-neutral-400 font-mono">GPIO 7 (Top Switch)</span>
                       <span className="text-neutral-200 font-medium">Top 0.0mm Reference</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 6, 5, 10</span>
-                      <span className="text-neutral-200 font-medium">DM542T Step, Dir, Enable</span>
+                      <span className="text-neutral-400 font-mono">GPIO 8, 9, 17, 18</span>
+                      <span className="text-neutral-200 font-medium">TMC2209 Step, Dir, Enable, UART</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 2, 1 (Port A)</span>
-                      <span className="text-amber-400 font-medium">HX711 Load Cell (DOUT/SCK)</span>
+                      <span className="text-neutral-400 font-mono">GPIO 5, 10</span>
+                      <span className="text-amber-400 font-medium">HX711 Load Cell (DT/SCK, not GPIO 13)</span>
                     </li>
                     <li className="flex items-start justify-between">
                       <span className="text-neutral-400 font-mono">AW88298 I2S Amp</span>
@@ -720,18 +720,18 @@ export default function App() {
 
               <div className="divide-y divide-neutral-900 text-xs">
                 {[
-                  { name: 'USER_MANUAL.md', path: '/USER_MANUAL.md', type: 'Manual', desc: 'Print-ready Operations & Configuration Manual: Executive Summary, Index, Speed Glossary, Sound & Tunes, Kerzenkiste 36-Candle Jig specs', code: userManualRaw, tab: 'manual' },
+                  { name: 'USER_MANUAL.md', path: '/USER_MANUAL.md', type: 'Manual', desc: 'Operator manual: safety, screens, running a batch, every setting, scale calibration, alerts and troubleshooting (Word version in docs/)', code: userManualRaw, tab: 'manual' },
                   { name: 'PROJECT_HANDOVER.md', path: '/PROJECT_HANDOVER.md', type: 'Doc', desc: 'Comprehensive handover: full specs, circuits, modules, blockers, and next steps', code: handoverMdRaw, tab: 'readme' },
                   { name: 'platformio.ini', path: '/platformio.ini', type: 'Config', desc: 'PlatformIO CoreS3 board, espressif32 platform, and M5Unified library dependencies', code: platformioIniRaw, tab: 'platformio' },
                   { name: 'README.md', path: '/README.md', type: 'Doc', desc: 'Complete hardware schematics, PC817 wiring, pinout table, and build guide', code: readmeRaw, tab: 'readme' },
-                  { name: 'main.cpp', path: '/src/main.cpp', type: 'C++ Main', desc: 'Automated dipping state machine, SoundManager integration, collision top-rest retraction, Base Melt, and Clean Jig', code: mainCppRaw, tab: 'main' },
-                  { name: 'PinConfig.h', path: '/src/PinConfig.h', type: 'C++ Header', desc: 'Hardware GPIO definitions for DM542T, Capacitive Sensor, HX711, and top limit switch', code: pinConfigRaw, tab: 'pinconfig' },
+                  { name: 'main.cpp', path: '/src/main.cpp', type: 'C++ Main', desc: 'Dipping state machine (auto-home, buoyancy-aware collision check, fault alerts, Max Dips limit), Wi-Fi portal and NTP clock sync', code: mainCppRaw, tab: 'main' },
+                  { name: 'PinConfig.h', path: '/src/PinConfig.h', type: 'C++ Header', desc: 'Hardware GPIO definitions for the TMC2209, capacitive wax sensor, HX711 (clock on GPIO 10) and top limit switch', code: pinConfigRaw, tab: 'pinconfig' },
                   { name: 'SoundManager.h', path: '/src/SoundManager.h', type: 'C++ Header', desc: 'Dedicated I2S speaker melody synthesizer header (8 Startup, 10 Finish, 9 Alert tunes + Volume)', code: soundManagerHRaw, tab: 'sound' },
                   { name: 'SoundManager.cpp', path: '/src/SoundManager.cpp', type: 'C++ Source', desc: 'Compact Flash note arrays (Dota 2 Ready, SpongeBob, Adventure Time, Classical, Heavy Metal, Mario, Bird, Dog Bark)', code: soundManagerCppRaw, tab: 'soundcpp' },
-                  { name: 'SensorManager.h', path: '/src/SensorManager.h', type: 'C++ Header', desc: 'Glitch-filtered sensor class definition and active-LOW polarity configuration', code: sensorManagerHRaw, tab: 'sensor' },
-                  { name: 'SensorManager.cpp', path: '/src/SensorManager.cpp', type: 'C++ Source', desc: 'Glitch-filtered debouncing for top optical switch and capacitive wax sensor', code: sensorManagerCppRaw, tab: 'sensorcpp' },
-                  { name: 'MotorManager.h', path: '/src/MotorManager.h', type: 'C++ Header', desc: 'Stepper driver class, top-rest retraction, Melt Bases, and Clean Whole Jig', code: motorManagerHRaw, tab: 'motor' },
-                  { name: 'MotorManager.cpp', path: '/src/MotorManager.cpp', type: 'C++ Source', desc: 'Non-blocking pulse generator, dynamic speed transitions, and limit switch backoff', code: motorManagerCppRaw, tab: 'motorcpp' },
+                  { name: 'SensorManager.h', path: '/src/SensorManager.h', type: 'C++ Header', desc: 'Sensor class, polarity configuration and the time-qualified Debounce helper used by motion loops', code: sensorManagerHRaw, tab: 'sensor' },
+                  { name: 'SensorManager.cpp', path: '/src/SensorManager.cpp', type: 'C++ Source', desc: 'Glitch-filtered reads for the top switch and capacitive wax sensor', code: sensorManagerCppRaw, tab: 'sensorcpp' },
+                  { name: 'MotorManager.h', path: '/src/MotorManager.h', type: 'C++ Header', desc: 'Ramped motion API (FastAccelStepper), homed-state tracking, top-rest retraction, Melt Bases, and Clean Whole Jig', code: motorManagerHRaw, tab: 'motor' },
+                  { name: 'MotorManager.cpp', path: '/src/MotorManager.cpp', type: 'C++ Source', desc: 'Hardware-timed step generation with acceleration ramps, 4-stage homing, distance-limited moves, and TMC2209 UART setup', code: motorManagerCppRaw, tab: 'motorcpp' },
                   { name: 'ScaleManager.h', path: '/src/ScaleManager.h', type: 'C++ Header', desc: 'HX711 24-bit strain-gauge ADC class, RAM-only Tare, and NVS slope persistence', code: scaleManagerHRaw, tab: 'scale' },
                   { name: 'ScaleManager.cpp', path: '/src/ScaleManager.cpp', type: 'C++ Source', desc: '10Hz bit-bang sampling, blocking multi-sample RAM Tare, and 2-point Load Cell Calibration', code: scaleManagerCppRaw, tab: 'scalecpp' },
                   { name: 'DisplayManager.h', path: '/src/DisplayManager.h', type: 'C++ Header', desc: 'Double-buffered M5Canvas graphics pipeline class, 2-Bucket Setup, and 3-Card Scroll UI', code: displayManagerHRaw, tab: 'header' },
@@ -859,7 +859,7 @@ export default function App() {
                       <span className="mx-auto font-sans">DIPPING IN PROGRESS</span>
                     ) : page === 10 ? (
                       <span className="mx-auto font-sans">
-                        {collisionAlert ? 'WAX COLLISION ALERT!' : lowWaxAlert ? 'LOW WAX ALERT' : 'CONFIRM ABORT'}
+                        {collisionAlert ? 'COLLISION ALERT' : lowWaxAlert ? 'LOW WAX ALERT' : 'RUN PAUSED'}
                       </span>
                     ) : page === 11 ? (
                       <span className="mx-auto font-sans">{dipAborted ? 'PROCESS CANCELLED' : 'PROCESS COMPLETE'}</span>
@@ -1653,14 +1653,14 @@ export default function App() {
                         ) : (
                           <span className="text-amber-300 text-[11px] font-bold">Paused at top rest (0.0mm)</span>
                         )}
-                        <span className="text-white text-xs font-bold">Abort or Resume dipping?</span>
+                        <span className="text-white text-xs font-bold">Resume or abort the run?</span>
                         <div className="flex items-center gap-3 w-full px-4">
-                          <button onClick={() => { setCollisionAlert(false); setLowWaxAlert(false); setPage(9); setLastEvent('Resumed dipping from 0.0mm top rest'); }} className="flex-1 py-3 rounded-xl font-bold text-xs text-white" style={{ backgroundColor: ts.outlineBg }}>NO</button>
+                          <button onClick={() => { setCollisionAlert(false); setLowWaxAlert(false); setPage(9); setLastEvent('Resumed dipping from 0.0mm top rest'); }} className="flex-1 py-3 rounded-xl font-bold text-xs text-black" style={{ backgroundColor: ts.activeBg }}>RESUME</button>
                           <button 
                             onClick={() => { setDipAborted(true); setCollisionAlert(false); setLowWaxAlert(false); setFinalDurationSecs(45); setPage(11); setLastEvent('Dipping cancelled by user'); }} 
                             className="flex-1 py-3 rounded-xl font-bold text-xs bg-red-600 text-white"
                           >
-                            YES
+                            ABORT
                           </button>
                         </div>
                       </div>
@@ -1730,7 +1730,7 @@ export default function App() {
                           ))}
                         </div>
                         <div className="flex items-center gap-1 mt-1">
-                          <button onClick={() => setShowNumpad(false)} className="flex-1 py-1 rounded bg-red-800 text-white font-bold text-[10px]">CAN</button>
+                          <button onClick={() => setShowNumpad(false)} className="flex-1 py-1 rounded bg-red-800 text-white font-bold text-[10px]">CANCEL</button>
                           <button 
                             onClick={() => {
                               const parsed = parseInt(numpadVal) || 0;
@@ -1918,7 +1918,11 @@ export default function App() {
                 <ul className="text-xs text-neutral-300 space-y-1.5 list-disc list-inside leading-relaxed">
                   <li><strong>2-Bucket Setup &amp; 3-Card Scroll UI:</strong> Splits settings into <code className="text-emerald-300 font-mono">1. RECIPE PARAMS</code> and <code className="text-emerald-300 font-mono">2. MACHINE SETUP</code> with 3 tall cards + subtitle hints and a right-hand <code className="text-emerald-300 font-mono">▲ / ▼</code> scroll column.</li>
                   <li><strong>Upgraded Color Palettes:</strong> Refined <code className="text-emerald-300 font-mono">Ind. Slate</code>, <code className="text-emerald-300 font-mono">Bee Mine</code> (Espresso, Honeycomb &amp; Sage), and <code className="text-emerald-300 font-mono">Midnight</code> OLED themes.</li>
-                  <li><strong>Kerzenkiste 36-Candle Jig Manual:</strong> Full print-ready <code className="text-emerald-300 font-mono">USER_MANUAL.md</code> with Executive Summary, Index, Speed Glossary, and Detailed Reference.</li>
+                  <li><strong>Ramped Motion:</strong> Step pulses now come from <code className="text-emerald-300 font-mono">FastAccelStepper</code> hardware timers with acceleration ramps, auto-homing and distance-limited moves.</li>
+                  <li><strong>Safety Checks:</strong> Buoyancy-aware collision detection, <code className="text-emerald-300 font-mono">Max Dips</code> limit for Weight mode, and fault screens for a missing top switch or a wax sensor that is already triggered.</li>
+                  <li><strong>Scale Clock on GPIO 10:</strong> GPIO 13 is the CoreS3 speaker data line, so the HX711 clock wire must be moved to GPIO 10.</li>
+                  <li><strong>Rewritten Manual:</strong> New <code className="text-emerald-300 font-mono">USER_MANUAL.md</code> matching the current firmware, with a print-ready Word copy in <code className="text-emerald-300 font-mono">docs/</code>.</li>
+                  <li><strong>Simulator Note:</strong> The CoreS3 simulator on this site is an approximation and does not yet show the full-screen numpad, fault screens or Max Dips setting.</li>
                 </ul>
               </div>
             </div>
@@ -1932,7 +1936,7 @@ export default function App() {
                 <Package className="w-4 h-4 text-amber-400" />
                 <span className="text-xs font-mono font-semibold text-white">/USER_MANUAL.md</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Print-Ready Operations &amp; Parameter Manual
+                  Operator Manual (Word copy in docs/)
                 </span>
               </div>
               <div className="flex items-center gap-2">
