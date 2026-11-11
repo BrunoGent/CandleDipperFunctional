@@ -17,7 +17,7 @@ All external sensors and actuators are routed through the M5Stack Proto Module u
 | **Motor ENABLE** | **GPIO 17** | `G17` | 3.3V (Active-LOW) | TMC2209 Driver enable line |
 | **Motor UART** | **GPIO 18** | `G18` | 3.3V Single-Wire | TMC2209 UART (with 1kΩ inline resistor) |
 | **Load Cell DT** | **GPIO 5** | `G5` | 3.3V Serial Data | HX711 24-bit ADC Data line |
-| **Load Cell SCK** | **GPIO 13** | `G13` | 3.3V Serial Clock | HX711 24-bit ADC Clock line |
+| **Load Cell SCK** | **GPIO 10** | `G10` | 3.3V Serial Clock | HX711 24-bit ADC Clock line (not GPIO 13: that is the CoreS3 speaker data line) |
 
 ---
 

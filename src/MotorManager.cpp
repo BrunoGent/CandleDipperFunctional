@@ -4,28 +4,53 @@
 // and 1/8 microstepping = (200 * 8) / 8mm = 200 steps per mm
 const float MotorManager::STEPS_PER_MM = 200.0f;
 
+// Every move ramps at this rate. 300 mm/s^2 reaches 60 mm/s in 0.2 s; lower it if the motor still stalls
+// with a heavy jig, raise it if moves feel sluggish.
+const float MotorManager::ACCEL_MM_S2 = 300.0f;
+
+// Upward moves slow down close to the top so the switch is always met gently
+const float MotorManager::TOP_APPROACH_ZONE_MM = 12.0f;
+const float MotorManager::TOP_APPROACH_SPEED_MMPS = 10.0f;
+const float MotorManager::UNHOMED_MAX_SPEED_MMPS = 20.0f;
+const float MotorManager::ABS_MAX_TRAVEL_MM = 1000.0f;
+
+// The top switch / wax sensor must read active continuously for this long before a move reacts to it
+static const uint32_t SENSOR_DEBOUNCE_US = 2000;
+
 MotorManager::MotorManager()
   : _sensors(nullptr),
+    _stepper(nullptr),
     _currentMode(MODE_STEALTHCHOP),
     _modeInitialized(false),
     _modeSetting(1),
     _thresholdMMps(30),
     _enabled(false),
-    _positionMM(0.0f),
+    _homed(false),
+    _runDir(0),
+    _runSpeedHz(0),
     _maxSoftLimitMM(500.0f) {}
 
 void MotorManager::begin(SensorManager* sensorMgr) {
   _sensors = sensorMgr;
 
   // Configure stepper control pins as outputs
-  pinMode(PIN_MOTOR_STEP, OUTPUT);
   pinMode(PIN_MOTOR_DIR, OUTPUT);
   pinMode(PIN_MOTOR_ENABLE, OUTPUT);
   pinMode(PIN_MOTOR_UART, OUTPUT);
-
-  digitalWrite(PIN_MOTOR_STEP, LOW);
   digitalWrite(PIN_MOTOR_DIR, LOW);
-  
+
+  // Hardware-timed step pulse generator with acceleration ramps
+  _engine.init();
+  _stepper = _engine.stepperConnectToPin(PIN_MOTOR_STEP);
+  if (_stepper) {
+    // Position counts UP when moving DOWN. DIR HIGH = UP on this machine, so DIR HIGH counts down.
+    _stepper->setDirectionPin(PIN_MOTOR_DIR, false);
+    _stepper->setAcceleration((int32_t)(ACCEL_MM_S2 * STEPS_PER_MM));
+    _stepper->setCurrentPosition(0);
+  } else {
+    Serial.println("MotorManager: could not attach step generator to PIN_MOTOR_STEP!");
+  }
+
   // Enable driver immediately on boot (Active LOW: LOW = coils energized)
   digitalWrite(PIN_MOTOR_ENABLE, LOW);
   _enabled = true;
@@ -35,7 +60,10 @@ void MotorManager::begin(SensorManager* sensorMgr) {
   delay(10);
 
   // Initialize TMC2209 driver registers over UART:
-  // 1. IHOLD_IRUN (0x10): IRUN=16 (~600mA RMS), IHOLD=8, IHOLDDELAY=6
+  // 1. IHOLD_IRUN (0x10): IHOLDDELAY=6, IRUN=16, IHOLD=8.
+  //    With the standard 0.11 ohm sense resistors and vsense=0 this is roughly 0.9 A RMS while moving
+  //    and 0.5 A RMS holding: I_rms = (IRUN+1)/32 * 0.325V / (0.11 + 0.02 ohm) / 1.414.
+  //    If the motor runs hot, lower IRUN (bits 12..8), e.g. 0x00060A05 for about 0.6 A RMS.
   sendUARTCommand(0x10, 0x00061008);
   delay(5);
 
@@ -47,7 +75,7 @@ void MotorManager::begin(SensorManager* sensorMgr) {
   sendUARTCommand(0x70, 0xC40D001D);
   delay(5);
 
-  // 4. Set initial TMC mode to StealthChop2 (GCONF mstep_reg_select = 1)
+  // 4. Set initial TMC mode to StealthChop2 (applyConfigMode() then selects the user's saved mode)
   setTMCMode(MODE_STEALTHCHOP);
 }
 
@@ -59,9 +87,10 @@ void MotorManager::setTMCMode(TMCMode mode) {
   _modeInitialized = true;
 
   // Send TMC2209 UART packet to set GCONF register (0x00)
-  // Bit 6 (0x40) = mstep_reg_select: 1 = Use register CHOPCONF for microsteps instead of MS1/MS2 pins
-  // Bit 7 (0x80) = multistep_filt: 1 = enable step pulse filter
+  // Bit 6 (0x40) = pdn_disable: 1 = PDN_UART pin is used for UART only
+  // Bit 7 (0x80) = mstep_reg_select: 1 = microstep resolution comes from CHOPCONF.MRES instead of the MS1/MS2 pins
   // Bit 2 (0x04) = en_SpreadCycle: 1 = SpreadCycle, 0 = StealthChop2
+  // Bit 0 (0x01) = I_scale_analog is left at 0, so motor current is set by IHOLD_IRUN and NOT by the VREF pot
   if (mode == MODE_STEALTHCHOP) {
     sendUARTCommand(0x00, 0x000000C0); // StealthChop2 enabled (silent operation)
   } else {
@@ -89,6 +118,10 @@ void MotorManager::applyConfigMode(int modeSetting, float speedMMps, int thresho
 
 // Toggles power to the stepper motor coils (LOW = locked/enabled, HIGH = freewheel/disabled)
 void MotorManager::setMotorEnable(bool enable) {
+  if (!enable) {
+    stopMotor();
+    _homed = false; // With the coils released the carriage can be moved by hand, so position is no longer trusted
+  }
   _enabled = enable;
   digitalWrite(PIN_MOTOR_ENABLE, enable ? LOW : HIGH);
 }
@@ -126,336 +159,297 @@ void MotorManager::sendUARTCommand(uint8_t reg, uint32_t val) {
   Serial2.flush(); // Wait until all 8 bytes have finished transmitting
 }
 
+// ============================================================================
+// Motion primitives
+// ============================================================================
+
+float MotorManager::getCurrentPositionMM() {
+  if (!_stepper) return 0.0f;
+  return (float)_stepper->getCurrentPosition() / STEPS_PER_MM;
+}
+
+void MotorManager::setCurrentPositionMM(float pos) {
+  if (_stepper) _stepper->setCurrentPosition((int32_t)lroundf(pos * STEPS_PER_MM));
+}
+
+bool MotorManager::isMoving() {
+  return _stepper && _stepper->isRunning();
+}
+
+void MotorManager::waitUntilStopped() {
+  while (isMoving()) delay(1);
+  _runDir = 0;
+}
+
+// Starts (or re-targets) a continuous ramped run. Only talks to the step generator when something changed,
+// so it is cheap to call on every loop iteration.
+void MotorManager::startRun(int dir, float speedMMps) {
+  if (!_stepper || speedMMps <= 0.0f) return;
+  if (!_enabled) setMotorEnable(true);
+
+  uint32_t hz = (uint32_t)(speedMMps * STEPS_PER_MM);
+  if (hz < 20) hz = 20;
+
+  bool running = _stepper->isRunning();
+  if (running && _runDir == dir && _runSpeedHz == hz) return;
+
+  _stepper->setSpeedInHz(hz);
+  if (running && _runDir == dir) {
+    _stepper->applySpeedAcceleration(); // Same direction: ramp to the new speed
+  } else {
+    if (dir < 0) _stepper->runBackward();
+    else         _stepper->runForward();
+  }
+  _runDir = dir;
+  _runSpeedHz = hz;
+}
+
+void MotorManager::runUp(float speedMMps) {
+  // Meet the top switch gently once we know where it is
+  if (_homed && getCurrentPositionMM() < TOP_APPROACH_ZONE_MM && speedMMps > TOP_APPROACH_SPEED_MMPS) {
+    speedMMps = TOP_APPROACH_SPEED_MMPS;
+  }
+  startRun(-1, speedMMps);
+}
+
+void MotorManager::runDown(float speedMMps) {
+  startRun(+1, speedMMps);
+}
+
+void MotorManager::stopSmooth() {
+  if (_stepper && _stepper->isRunning()) _stepper->stopMove();
+  _runDir = 0;
+}
+
 void MotorManager::stopMotor() {
-  digitalWrite(PIN_MOTOR_STEP, LOW);
+  if (_stepper && _stepper->isRunning()) {
+    // Stops pulse generation at once and discards any queued steps
+    _stepper->forceStopAndNewPosition(_stepper->getCurrentPosition());
+    // Give the step generator a moment to report idle so a following move starts from a clean state
+    unsigned long t0 = millis();
+    while (_stepper->isRunning() && millis() - t0 < 50) delay(1);
+  }
+  _runDir = 0;
+}
+
+// Runs in one direction until the debounced condition is true, the user stops it, or maxTravelMM is used up.
+// The motor is always stopped when this returns.
+MoveResult MotorManager::runUntil(bool up, float speedMMps, StopCond cond, float maxTravelMM, bool (*stopCheck)()) {
+  if (!_stepper) return MOVE_NO_STEPPER;
+  if (!_sensors) return MOVE_TRAVEL_EXCEEDED;
+
+  Debounce db;
+  float startPos = getCurrentPositionMM();
+
+  while (true) {
+    bool raw = false;
+    switch (cond) {
+      case COND_TOP_HIT:   raw = _sensors->readRawTopLimit();  break;
+      case COND_TOP_CLEAR: raw = !_sensors->readRawTopLimit(); break;
+      case COND_CAP_HIT:   raw = _sensors->readRawCapSensor(); break;
+    }
+    if (db.update(raw, SENSOR_DEBOUNCE_US)) {
+      stopMotor();
+      return MOVE_REACHED;
+    }
+    if (fabsf(getCurrentPositionMM() - startPos) >= maxTravelMM) {
+      stopMotor();
+      return MOVE_TRAVEL_EXCEEDED;
+    }
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      return MOVE_USER_STOP;
+    }
+
+    if (up) runUp(speedMMps);
+    else    runDown(speedMMps);
+    delayMicroseconds(300);
+  }
+}
+
+// Ramped relative move (positive = down). Blocks until finished.
+MoveResult MotorManager::moveRelativeMM(float distanceMM, float speedMMps, bool (*stopCheck)()) {
+  if (!_stepper) return MOVE_NO_STEPPER;
+  if (speedMMps <= 0.0f) return MOVE_REACHED;
+  if (!_enabled) setMotorEnable(true);
+  waitUntilStopped();
+
+  uint32_t hz = (uint32_t)(speedMMps * STEPS_PER_MM);
+  if (hz < 20) hz = 20;
+  _stepper->setSpeedInHz(hz);
+  _stepper->move((int32_t)lroundf(distanceMM * STEPS_PER_MM));
+
+  while (_stepper->isRunning()) {
+    if (stopCheck && stopCheck()) {
+      stopMotor();
+      return MOVE_USER_STOP;
+    }
+    delay(1);
+  }
+  _runDir = 0;
+  return MOVE_REACHED;
 }
 
 // Gently backs the carriage DOWN off the top mechanical limit switch by clearanceMM (default 2.0mm)
-// and zeroes _positionMM so the switch does not exert mechanical force on the load cell during weighing.
+// and zeroes the position so the switch does not exert mechanical force on the load cell during weighing.
+// Only call this when the carriage is genuinely at the switch: it marks the axis as homed.
 void MotorManager::backoffFromTopLimit(float clearanceMM) {
-  _positionMM = 0.0f;
-  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(50);
-  int steps = (int)(clearanceMM * STEPS_PER_MM);
-  for (int i = 0; i < steps; i++) {
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(1000); // 5 mm/s gentle relief move
-  }
-  _positionMM = 0.0f;
   stopMotor();
-}
-
-// Generates a smooth train of step pulses for 'burstMs' milliseconds before returning to loop()
-// Used by Manual Jogging (UP/DOWN buttons) and Dip Bot so UI/touch checks can run between bursts
-void MotorManager::stepMotorBurst(bool directionUp, float speedMMps, uint32_t burstMs) {
-  if (speedMMps <= 0.0f) return;
-  setMotorEnable(true);
-
-  // Apply configured TMC2209 chopper mode (StealthChop, SpreadCycle, or Adaptive at _thresholdMMps)
-  applyConfigMode(_modeSetting, speedMMps, _thresholdMMps);
-
-  digitalWrite(PIN_MOTOR_DIR, directionUp ? HIGH : LOW);
-
-  // Convert linear speed (mm/s) to microsecond delay between step pulses
-  float stepsPerSec = speedMMps * STEPS_PER_MM;
-  if (stepsPerSec <= 0.0f) return;
-  unsigned long intervalMicros = (unsigned long)(1000000.0f / stepsPerSec);
-  if (intervalMicros < 10) intervalMicros = 10;
-
-  float stepDistMM = 1.0f / STEPS_PER_MM;
-  unsigned long startMs = millis();
-  unsigned long lastSensorCheck = 0;
-
-  // Run tight stepping loop for the duration of burstMs (e.g. 15ms or 50ms)
-  while (millis() - startMs < burstMs) {
-    // Check hardware limit/wax sensors every 5ms inside the burst
-    if (millis() - lastSensorCheck >= 5) {
-      lastSensorCheck = millis();
-      if (_sensors) {
-        if (directionUp) {
-          if (_sensors->readRawTopLimit()) {
-            _positionMM = 0.0f;
-            stopMotor();
-            break;
-          }
-        } else {
-          if (_sensors->readRawCapSensor() || (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM)) {
-            stopMotor();
-            break;
-          }
-        }
-      }
-    }
-
-    // Emit a 3-microsecond HIGH step pulse
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-
-    // Update tracked position in millimeters
-    if (directionUp) {
-      _positionMM -= stepDistMM;
-      if (_positionMM < 0.0f) _positionMM = 0.0f;
-    } else {
-      _positionMM += stepDistMM;
-    }
-
-    // Wait remaining interval before next step pulse
-    if (intervalMicros > 3) {
-      delayMicroseconds(intervalMicros - 3);
-    }
-  }
-}
-
-// --- Fast Sensor Helpers for Homing ---
-// Double-checks the top limit switch with a 2us delay to ensure a genuine trigger edge
-static inline bool checkTopLimitFast(SensorManager* sensors) {
-  if (!sensors) return false;
-  if (!sensors->readRawTopLimit()) return false;
-  delayMicroseconds(2);
-  return sensors->readRawTopLimit();
-}
-
-// Double-checks that the top limit switch has returned to closed (unpressed) state
-static inline bool checkTopLimitCleared(SensorManager* sensors) {
-  if (!sensors) return true;
-  if (sensors->readRawTopLimit()) return false;
-  delayMicroseconds(2);
-  return !sensors->readRawTopLimit();
+  moveRelativeMM(clearanceMM, 5.0f); // 5 mm/s gentle relief move
+  setCurrentPositionMM(0.0f);
+  _homed = true;
 }
 
 // 4-Stage Precision Homing Sequence:
 // Stage 1: Fast seek UP until the top limit switch is hit.
 // Stage 2: Back off DOWN gently until switch clears, plus 1.0mm extra clearance.
 // Stage 3: Creep UP slowly (3 mm/s) until switch triggers again for high repeatability.
-// Stage 4: Creep DOWN very slowly (1 mm/s) until switch just releases, set 0.0mm, then move 2.0mm down for switch relief.
+// Stage 4: Creep DOWN very slowly (1 mm/s) until switch just releases, then move 2.0mm down and set 0.0mm.
+// Every stage has a distance limit, so a broken or unplugged switch ends in a clean failure instead of
+// driving the carriage into the frame.
 bool MotorManager::performHoming(float speedMMps, bool (*stopCheck)()) {
+  if (!_stepper || !_sensors) return false;
   setMotorEnable(true); // Ensure motor powered
   setTMCMode(MODE_STEALTHCHOP);
-  
-  unsigned long startTimeout = millis();
-  float stepsPerSec = speedMMps * STEPS_PER_MM;
-  if (stepsPerSec <= 0.0f) stepsPerSec = 40.0f * STEPS_PER_MM;
-  unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
-  if (delayUs < 40) delayUs = 40;
+  _homed = false;
 
-  // Stage 1: Fast Seek UP towards top limit switch
-  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(50);
+  if (speedMMps <= 0.0f) speedMMps = 40.0f;
 
-  while (_sensors && !checkTopLimitFast(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      return false;
-    }
-
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(delayUs);
-
-    if (millis() - startTimeout > 15000) { // 15-second safety timeout
-      stopMotor();
-      return false;
-    }
-  }
-
-  stopMotor();
+  // Stage 1: Fast Seek UP towards top limit switch (from anywhere in the travel, so allow the full stroke)
+  if (runUntil(true, speedMMps, COND_TOP_HIT, getMaxTravelMM() + 50.0f, stopCheck) != MOVE_REACHED) return false;
   delay(100);
 
-  // Stage 2: Backoff DOWN gently until switch clears
-  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(50);
-
-  int maxBackoffSteps = (int)(10.0f * STEPS_PER_MM); // up to 10mm backoff
-  int stepsBack = 0;
-  while (_sensors && !checkTopLimitCleared(_sensors) && stepsBack < maxBackoffSteps) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      return false;
-    }
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(400); // 12.5 mm/s gentle backoff
-    stepsBack++;
-  }
-
-  // Extra 1.0mm clearance backoff
-  for (int i = 0; i < (int)(1.0f * STEPS_PER_MM); i++) {
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(400);
-  }
-
-  stopMotor();
+  // Stage 2: Backoff DOWN gently until switch clears, plus 1.0mm clearance
+  if (runUntil(false, 12.5f, COND_TOP_CLEAR, 10.0f, stopCheck) != MOVE_REACHED) return false;
+  if (moveRelativeMM(1.0f, 12.5f, stopCheck) != MOVE_REACHED) return false;
   delay(100);
 
   // Stage 3: Slow precision approach UP (3 mm/s)
-  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(50);
-
-  while (_sensors && !checkTopLimitFast(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      return false;
-    }
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(1666); // 3 mm/s precision approach
-  }
-
-  stopMotor();
+  if (runUntil(true, 3.0f, COND_TOP_HIT, 15.0f, stopCheck) != MOVE_REACHED) return false;
   delay(100);
 
-  // Stage 4 (Standard Practice): Move DOWN slowly (1 mm/s) until switch JUST RELEASES!
-  digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN
-  delayMicroseconds(50);
+  // Stage 4: Move DOWN slowly (1 mm/s) until switch JUST RELEASES
+  if (runUntil(false, 1.0f, COND_TOP_CLEAR, 10.0f, stopCheck) != MOVE_REACHED) return false;
 
-  while (_sensors && !checkTopLimitCleared(_sensors)) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      return false;
-    }
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-    delayMicroseconds(5000); // 1 mm/s release creep
-  }
-
-  // Back off an additional 2.0mm clearance so carriage sits comfortably off switch and zero position
+  // Back off an additional 2.0mm clearance so carriage sits comfortably off switch, and zero position
   backoffFromTopLimit(2.0f);
   return true;
 }
 
-// Immediately raises the carriage back up to the top limit switch and backs off 2.0mm to the rest position (0.0mm).
+// Raises the carriage back up to the top limit switch and backs off 2.0mm to the rest position (0.0mm).
 // Used when a wax collision is detected or a submerged hold is aborted so the candle jig is never left stuck in molten wax.
-void MotorManager::retractToTopRest(float upSpeedMMps) {
+// Returns false (carriage stopped, axis un-homed) if the switch is not found within the expected travel.
+bool MotorManager::retractToTopRest(float upSpeedMMps) {
+  if (!_stepper || !_sensors) return false;
   setMotorEnable(true);
   float speed = (upSpeedMMps > 0.0f) ? upSpeedMMps : 40.0f;
   applyConfigMode(_modeSetting, speed, _thresholdMMps);
 
-  digitalWrite(PIN_MOTOR_DIR, HIGH); // UP
-  delayMicroseconds(50);
+  // When homed we know how far away the switch is; allow a margin for lost steps. Otherwise allow the full stroke.
+  float pos = getCurrentPositionMM();
+  float maxTravel = _homed ? (max(pos, 0.0f) + 30.0f) : (getMaxTravelMM() + 50.0f);
 
-  float stepsPerSec = speed * STEPS_PER_MM;
-  unsigned long delayUs = (unsigned long)(1000000.0f / stepsPerSec);
-  if (delayUs < 20) delayUs = 20;
-  float stepDistMM = 1.0f / STEPS_PER_MM;
-
-  unsigned long startTimeout = millis();
-  while (_sensors && !_sensors->readRawTopLimit()) {
-    digitalWrite(PIN_MOTOR_STEP, HIGH);
-    delayMicroseconds(3);
-    digitalWrite(PIN_MOTOR_STEP, LOW);
-
-    _positionMM -= stepDistMM;
-    if (_positionMM < 0.0f) _positionMM = 0.0f;
-
-    delayMicroseconds(delayUs);
-    if (millis() - startTimeout > 35000) break; // 35-second safety timeout guard
+  if (runUntil(true, speed, COND_TOP_HIT, maxTravel, nullptr) != MOVE_REACHED) {
+    _homed = false;
+    return false;
   }
-
-  stopMotor();
   backoffFromTopLimit(2.0f);
+  return true;
+}
+
+// Waits holdTimeSec seconds. Returns false if the user touched the screen during the wait.
+bool MotorManager::holdFor(int holdTimeSec, bool (*stopCheck)()) {
+  if (holdTimeSec <= 0) return true;
+  unsigned long holdStart = millis();
+  unsigned long holdMs = (unsigned long)holdTimeSec * 1000UL;
+  while (millis() - holdStart < holdMs) {
+    if (stopCheck && stopCheck()) return false;
+    delay(20);
+  }
+  return true;
 }
 
 // Executes a single manual test dip ("Dip Bot" button on the Manual Control screen):
-// 1. Lowers carriage until the capacitive sensor touches the wax surface (or 35s timeout) and records the wax level.
+// 1. Lowers carriage until the capacitive sensor touches the wax surface and records the wax level.
 // 2. Holds in the wax for 'holdTimeSec' seconds.
 // 3. Raises carriage back up to the top limit switch and backs off 2.0mm.
+// Returns false if stopped by the user, if the wax was not found before the soft limit, or if the
+// sensor already reads "wax" before the move starts (dirty or faulty sensor).
 bool MotorManager::performDipBot(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, float* outWaxLevelMM, bool (*stopCheck)()) {
+  if (!_stepper || !_sensors) return false;
   setMotorEnable(true);
-  
-  // 1. Move DOWN at downSpeedMMps until capacitive wax sensor triggers
-  unsigned long startTimeout = millis();
-  while (_sensors && !_sensors->readRawCapSensor()) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      return false;
-    }
-    stepMotorBurst(false, downSpeedMMps, 15);
-    if (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM) break;
-    if (millis() - startTimeout > 35000) break; // Timeout guard
+
+  // A sensor that is already triggered cannot find the wax surface
+  if (_sensors->readRawCapSensor()) {
+    delay(20);
+    if (_sensors->readRawCapSensor()) return false;
   }
 
-  stopMotor();
+  if (downSpeedMMps <= 0.0f) downSpeedMMps = 25.0f;
+  applyConfigMode(_modeSetting, downSpeedMMps, _thresholdMMps);
 
-  // Record measured wax surface level (Z distance from top home where capacitive sensor triggered)
-  if (outWaxLevelMM && _sensors && _sensors->readRawCapSensor()) {
-    *outWaxLevelMM = _positionMM;
+  // 1. Move DOWN until capacitive wax sensor triggers, never past the soft limit
+  float remaining = getMaxTravelMM() - getCurrentPositionMM();
+  if (remaining <= 0.0f) return false;
+  MoveResult r = runUntil(false, downSpeedMMps, COND_CAP_HIT, remaining, stopCheck);
+  if (r == MOVE_USER_STOP) return false; // Stay where the user stopped it
+  if (r != MOVE_REACHED) {
+    retractToTopRest(upSpeedMMps);       // Wax not found: do not hold in mid-air, just go back up
+    return false;
   }
+
+  // Record measured wax surface level (Z distance from top rest where capacitive sensor triggered)
+  if (outWaxLevelMM) *outWaxLevelMM = getCurrentPositionMM();
 
   // 2. Hold in wax for holdTimeSec
-  if (holdTimeSec > 0) {
-    unsigned long holdStart = millis();
-    while (millis() - holdStart < (unsigned long)(holdTimeSec * 1000)) {
-      if (stopCheck && stopCheck()) {
-        retractToTopRest(upSpeedMMps); // Do not leave jig sitting in molten wax on manual stop
-        return false;
-      }
-      delay(20);
-    }
+  if (!holdFor(holdTimeSec, stopCheck)) {
+    retractToTopRest(upSpeedMMps); // Do not leave jig sitting in molten wax on manual stop
+    return false;
   }
 
-  // 3. Move back UP to top limit switch at upSpeedMMps
-  unsigned long upStartTimeout = millis();
-  while (_sensors && !_sensors->readRawTopLimit()) {
-    if (stopCheck && stopCheck()) {
-      stopMotor();
-      return false;
-    }
-    stepMotorBurst(true, upSpeedMMps, 15);
-    if (millis() - upStartTimeout > 35000) break;
-  }
-
-  // Relieve switch pressure with gentle 2mm clearance backoff
-  backoffFromTopLimit(2.0f);
-  return true;
+  // 3. Move back UP to the top rest position
+  return retractToTopRest(upSpeedMMps);
 }
 
 // Melts the bottom bases of finished candles to clear drips and create a flat base finish:
-// 1. Lowers carriage from top home (0.0mm) down to targetDepthMM (lastWaxLevelMM - jigLengthMM).
+// 1. Lowers carriage down to targetDepthMM (lastWaxLevelMM - jigLengthMM).
 // 2. Holds the candle bottoms submerged in hot wax for 'holdTimeSec' seconds.
 // 3. Raises carriage back up to the top rest position (0.0mm).
 bool MotorManager::performMeltBases(float targetDepthMM, float downSpeedMMps, float upSpeedMMps, int holdTimeSec, bool (*stopCheck)()) {
-  if (targetDepthMM <= 0.0f) return false;
+  if (!_stepper || targetDepthMM <= 0.0f) return false;
   setMotorEnable(true);
+  if (downSpeedMMps <= 0.0f) downSpeedMMps = 25.0f;
+  applyConfigMode(_modeSetting, downSpeedMMps, _thresholdMMps);
+  waitUntilStopped();
 
-  // 1. Lower carriage until _positionMM reaches targetDepthMM (or capacitive sensor / soft limit triggers)
-  unsigned long startTimeout = millis();
-  while (_positionMM < targetDepthMM) {
-    if (_sensors && _sensors->readRawCapSensor()) break; // Safety stop if wax surface reached early
-    if (_maxSoftLimitMM > 0.0f && _positionMM >= _maxSoftLimitMM) break;
+  float target = min(targetDepthMM, getMaxTravelMM());
+  Debounce capDb;
+
+  // 1. Lower carriage until the position reaches the target (or the capacitive sensor reaches wax early)
+  _stepper->setSpeedInHz((uint32_t)(downSpeedMMps * STEPS_PER_MM));
+  _stepper->moveTo((int32_t)lroundf(target * STEPS_PER_MM));
+  while (_stepper->isRunning()) {
+    if (_sensors && capDb.update(_sensors->readRawCapSensor(), SENSOR_DEBOUNCE_US)) {
+      stopMotor(); // Safety stop if wax surface reached early
+      break;
+    }
     if (stopCheck && stopCheck()) {
+      stopMotor();
       retractToTopRest(upSpeedMMps);
       return false;
     }
-    stepMotorBurst(false, downSpeedMMps, 15);
-    if (millis() - startTimeout > 35000) break;
+    delayMicroseconds(300);
   }
-
-  stopMotor();
+  _runDir = 0;
 
   // 2. Hold candle bases in molten wax for holdTimeSec seconds
-  if (holdTimeSec > 0) {
-    unsigned long holdStart = millis();
-    while (millis() - holdStart < (unsigned long)(holdTimeSec * 1000)) {
-      if (stopCheck && stopCheck()) {
-        retractToTopRest(upSpeedMMps); // Lift candles out of wax before stopping
-        return false;
-      }
-      delay(20);
-    }
+  if (!holdFor(holdTimeSec, stopCheck)) {
+    retractToTopRest(upSpeedMMps); // Lift candles out of wax before stopping
+    return false;
   }
 
   // 3. Raise back up to the top rest position
-  retractToTopRest(upSpeedMMps);
-  return true;
+  return retractToTopRest(upSpeedMMps);
 }
 
 // Sinks the entire candle jig as deep as the capacitive sensor allows to melt and clean off old wax:
@@ -465,8 +459,3 @@ bool MotorManager::performMeltBases(float targetDepthMM, float downSpeedMMps, fl
 bool MotorManager::performCleanJig(float downSpeedMMps, float upSpeedMMps, int holdTimeSec, float* outWaxLevelMM, bool (*stopCheck)()) {
   return performDipBot(downSpeedMMps, upSpeedMMps, holdTimeSec, outWaxLevelMM, stopCheck);
 }
-
-
-
-
-

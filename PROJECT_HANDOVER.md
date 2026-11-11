@@ -28,7 +28,9 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 | **Stepper ENABLE** | `PIN_MOTOR_ENABLE` | **GPIO 17** | `G17` | 3.3V Active-LOW | LOW = Energized coils, HIGH = Driver sleep |
 | **Stepper UART** | `PIN_MOTOR_UART` | **GPIO 18** | `G18` | 3.3V Single-Wire Half-Duplex | `Serial2` @ 115200 baud with 1kΩ inline resistor |
 | **Load Cell DT (Data)** | `PIN_HX711_DT` | **GPIO 5** | `G5` | 3.3V Serial Bit-Bang | HX711 24-bit ADC Data Out |
-| **Load Cell SCK (Clock)** | `PIN_HX711_SCK` | **GPIO 13** | `G13` | 3.3V Serial Clock | Clock pulse train for 24-bit readout + Gain 128 |
+| **Load Cell SCK (Clock)** | `PIN_HX711_SCK` | **GPIO 10** | `G10` | 3.3V Serial Clock | Clock pulse train for 24-bit readout + Gain 128 |
+
+> **Do not use GPIO 13 for the HX711 clock.** On the CoreS3 / CoreS3 SE, GPIO 13 is the I2S audio data line to the built-in speaker amplifier. As soon as the speaker is started the audio driver owns that pin, the HX711 receives no clock, and the scale reads 0 g permanently.
 
 ---
 
@@ -143,7 +145,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 | :--- | :--- | :--- |
 | `src/PinConfig.h` | Master GPIO definitions and hardware register constants | ✅ Verified |
 | `src/SensorManager.h/.cpp` | 3-sample hardware debouncer for limit switch & PC817 optocoupler | ✅ Verified (Active-LOW default set) |
-| `src/MotorManager.h/.cpp` | TMC2209 UART driver, StealthChop2 switching, 4-stage homing & dipping | ✅ Verified |
+| `src/MotorManager.h/.cpp` | TMC2209 UART driver, StealthChop2 switching, ramped step generation (FastAccelStepper), 4-stage homing & dipping | ⚠️ Compiles; ramped motion not yet bench-tested |
 | `src/ScaleManager.h/.cpp` | Non-blocking 10Hz HX711 bit-bang reader, EMA vibration filter, NVS tare | ✅ Verified |
 | `src/DisplayManager.h/.cpp`| Double-buffered M5Canvas UI engine, touch hit-testing & themes | ✅ Verified |
 | `src/main.cpp` | State machine router, dipping cycle coordinator, and captive portal | ✅ Verified |
@@ -173,7 +175,9 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 3. **HX711 Bit-Bang Interrupt Window:**
    * `ScaleManager::readRawBitbang()` disables interrupts (`noInterrupts()`) for ~100 microseconds during 24-bit clocking. If Wi-Fi web requests occur simultaneously, verify that packet throughput is smooth. If jitter occurs, move scale reads to FreeRTOS Core 1.
 4. **TMC2209 Current Threshold:**
-   * Default run current is set to 800mA RMS (`IRUN = 20`, `IHOLD = 10`). Check motor heat after continuous dipping; adjust down to 600mA if the motor gets warm.
+   * The firmware writes `IHOLD_IRUN = 0x00061008` (`IRUN = 16`, `IHOLD = 8`, `IHOLDDELAY = 6`). With the standard 0.11 Ω sense resistors this is roughly **0.9 A RMS while moving and 0.5 A RMS holding** (`I_rms = (IRUN+1)/32 × 0.325 V / (0.11 Ω + 0.02 Ω) / 1.414`). `GCONF.I_scale_analog` is 0, so the VREF pot on the driver has no effect. Check motor heat after continuous dipping; for about 0.6 A RMS change the value in `MotorManager::begin()` to `0x00060A05` (`IRUN = 10`).
+5. **Acceleration Ramp:**
+   * Every move ramps at `MotorManager::ACCEL_MM_S2` (300 mm/s²). If the motor stalls or the jig swings at the start of a move, lower it; if moves feel sluggish, raise it.
 
 ---
 
@@ -209,5 +213,5 @@ pio device monitor -b 115200
   - Zero reference set at `0.0 mm` with 2.0 mm relief clearance.
 
 ### Step 4: First Automated Dipping Cycle
-- Verify parameters on CoreS3 display (Down speed: 30 mm/s, Dwell: 3s, Up speed: 15 mm/s, Cool: 10s).
+- Verify parameters on CoreS3 display (firmware defaults: Down speed 50 mm/s, Immerse speed 25 mm/s, Extract speed 20 mm/s, Up speed 60 mm/s, 1st dip hold 10 s, later dips 4 s, Cool 15 s, Driver Mode SpreadCycle). For a first run it is sensible to halve the speeds.
 - Initiate test dip: verify carriage lowers, stops instantly on wax touch, dwells, raises to top limit, and cools.

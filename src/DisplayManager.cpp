@@ -1,7 +1,8 @@
 #include "DisplayManager.h"
 
-// Parameter metadata arrays (indices 0..22 map to preferences keys "s0".."s22"; index 23 is Scale Calibration weight)
-static const char* settingNames[24] = {
+// Parameter metadata arrays (indices 0..22 and 24 map to preferences keys "s0".."s22" and "s24";
+// index 23 is the Scale Calibration weight, which is not stored)
+static const char* settingNames[25] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
   "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed",
   "Col. Limit", "Soft Limit", "Weight Dwell", "Default Cool",
@@ -10,11 +11,12 @@ static const char* settingNames[24] = {
   "1st Cool Time", "Last Cool Time",
   "Immerse Speed", "Extract Speed",
   "Drip Offset", "Drip Time",
-  "Known Weight (g)"
+  "Known Weight (g)",
+  "Max Dips"
 };
 
 // Helpful 1-line subtitle hints displayed inside each 50px parameter card
-static const char* settingHints[24] = {
+static const char* settingHints[25] = {
   "Target wax weight (Slim)",    // s0
   "Target wax weight (Std)",     // s1
   "Total dip cycles (Slim)",     // s2
@@ -38,10 +40,11 @@ static const char* settingHints[24] = {
   "Slow lift while in wax",      // s20
   "+ above / - in wax (0=Off)",  // s21
   "Drip pause hold (0=Off)",     // s22
-  "Calibration test mass"        // s23
+  "Calibration test mass",       // s23
+  "Weight mode safety stop"      // s24
 };
 
-static const char* settingUnits[24] = {
+static const char* settingUnits[25] = {
   "g", "g", "dips", "dips",
   "s", "s", "mm/s", "mm/s",
   "g", "mm", "ms", "s",
@@ -50,12 +53,13 @@ static const char* settingUnits[24] = {
   "s", "s",
   "mm/s", "mm/s",
   "mm", "s",
-  "g"
+  "g",
+  "dips"
 };
 static const char* themeNames[3] = { "Ind. Slate", "Bee Mine", "Midnight" };
 
 // Parameter index lists for the scrollable 3-card sub-pages
-static const int dippingSettingIndices[4] = { 0, 1, 2, 3 };   // Slim Wt, Std Wt, Slim Dips, Std Dips
+static const int dippingSettingIndices[5] = { 0, 1, 2, 3, 24 }; // Slim Wt, Std Wt, Slim Dips, Std Dips, Max Dips (Weight mode safety)
 static const int timingSettingIndices[4]  = { 4, 5, 21, 22 }; // 1st Dip Time, + Dips Time, Drip Offset (mm), Drip Time (s)
 static const int coolingSettingIndices[3] = { 11, 17, 18 };   // Default Cool (s), 1st Cool (s), Last Cool (s)
 static const int speedsSettingIndices[4]  = { 6, 7, 19, 20 }; // Up Speed, Down Speed, Immerse Speed, Extract Speed
@@ -151,6 +155,7 @@ int DisplayManager::getSettingValue(int index) const {
      case 21: return data.s_dripOffset;
      case 22: return data.s_dripTime;
      case 23: return data.calibrationRefGrams;
+     case 24: return data.s_maxDips;
   }
   return 0;
 }
@@ -182,6 +187,7 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 21: data.s_dripOffset = constrain(val, -200, 200); break;     // Positive = above wax, Negative = below, 0 = off
      case 22: data.s_dripTime = abs(val); break;                        // 0 = disabled
      case 23: data.calibrationRefGrams = max(1, abs(val)); break;
+     case 24: data.s_maxDips = constrain(abs(val), 1, 999); break;
   }
 }
 
@@ -289,11 +295,24 @@ void DisplayManager::drawTopBanner() {
 
   if (data.currentPage == PAGE_MANUAL || data.currentPage == PAGE_SCALE_CAL) {
       char posStr[32]; char wtStr[32];
-      snprintf(posStr, sizeof(posStr), "POS: %d mm", (int)data.currentPosition);
-      if (fabsf(data.currentWeight) < 1000.0f) {
-        snprintf(wtStr, sizeof(wtStr), "WT: %.1f g", data.currentWeight);
+      if (data.currentPage == PAGE_MANUAL) {
+        // The Manual banner also carries the sensor status in the middle. At full size the three items
+        // overlap (each character is 12 px wide), so this page uses compact labels at 9 px per character:
+        // position ends by x=100, status spans 124..196, weight starts at x=220 at the widest.
+        snprintf(posStr, sizeof(posStr), "POS %dmm", (int)data.currentPosition);
+        if (fabsf(data.currentWeight) < 1000.0f) {
+          snprintf(wtStr, sizeof(wtStr), "WT %.1fg", data.currentWeight);
+        } else {
+          snprintf(wtStr, sizeof(wtStr), "WT %dg", (int)roundf(data.currentWeight));
+        }
+        canvas.setTextSize(1.5);
       } else {
-        snprintf(wtStr, sizeof(wtStr), "WT: %d g", (int)roundf(data.currentWeight));
+        snprintf(posStr, sizeof(posStr), "POS: %d mm", (int)data.currentPosition);
+        if (fabsf(data.currentWeight) < 1000.0f) {
+          snprintf(wtStr, sizeof(wtStr), "WT: %.1f g", data.currentWeight);
+        } else {
+          snprintf(wtStr, sizeof(wtStr), "WT: %d g", (int)roundf(data.currentWeight));
+        }
       }
       canvas.setTextDatum(middle_left); 
       canvas.drawString(posStr, 10, bannerHeight / 2);
@@ -305,13 +324,13 @@ void DisplayManager::drawTopBanner() {
         canvas.setTextSize(1.5);
         if (data.limitSwitchOn) {
           canvas.setTextColor(canvas.color565(255, 60, 60), c_banner);
-          canvas.drawString("TOP: HIT", 160, bannerHeight / 2);
+          canvas.drawString("TOP HIT", 160, bannerHeight / 2);
         } else if (data.capSensorOn) {
           canvas.setTextColor(canvas.color565(255, 180, 0), c_banner);
-          canvas.drawString("WAX: HIT", 160, bannerHeight / 2);
+          canvas.drawString("WAX HIT", 160, bannerHeight / 2);
         } else {
           canvas.setTextColor(canvas.color565(40, 160, 40), c_banner);
-          canvas.drawString("TOP: OPEN", 160, bannerHeight / 2);
+          canvas.drawString("TOP OPEN", 160, bannerHeight / 2);
         }
         canvas.setTextSize(2.0);
       }
@@ -369,10 +388,12 @@ void DisplayManager::drawTopBanner() {
       canvas.setTextDatum(middle_center);
       if (data.currentPage == PAGE_ACTIVE_DIP) canvas.drawString("DIPPING IN PROGRESS", 160, bannerHeight / 2);
       else if (data.currentPage == PAGE_STOP_CONFIRM) {
-        if (data.lowWaxTriggered)        canvas.drawString("LOW WAX ALERT", 160, bannerHeight / 2);
+        if (data.faultTriggered)         canvas.drawString("MACHINE FAULT", 160, bannerHeight / 2);
+        else if (data.lowWaxTriggered)   canvas.drawString("LOW WAX ALERT", 160, bannerHeight / 2);
         else if (data.collisionTriggered) canvas.drawString("COLLISION ALERT", 160, bannerHeight / 2);
-        else                             canvas.drawString("CONFIRM ABORT", 160, bannerHeight / 2);
+        else                             canvas.drawString("RUN PAUSED", 160, bannerHeight / 2);
       }
+      else if (data.maxDipsTriggered) canvas.drawString("MAX DIPS REACHED", 160, bannerHeight / 2);
       else canvas.drawString(data.dipWasAborted ? "PROCESS ABORTED" : "PROCESS COMPLETE", 160, bannerHeight / 2);
   } else {
       m5::rtc_datetime_t dt;
@@ -940,36 +961,66 @@ void DisplayManager::drawWifiPortalPage() {
   canvas.drawString("Open http://192.168.4.1", 160, 145);
 }
 
-// Draws the pop-up numeric keypad overlay for entering parameter values or calibration reference weight
-void DisplayManager::drawNumpad() {
-  canvas.fillRect(20, 30, 280, 195, c_banner);
-  canvas.setTextDatum(top_center);
-  canvas.setTextColor(c_bannerTxt, c_banner);
-  int labelIdx = constrain(data.activeSetting, 0, 23);
-  canvas.drawString(settingNames[labelIdx], 160, 35);
-  
-  canvas.fillRect(30, 55, 260, 30, TFT_BLACK);
-  canvas.setTextDatum(middle_center);
-  canvas.setTextColor(TFT_WHITE, TFT_BLACK);
-  canvas.drawString(data.numpadStr.c_str(), 175, 70);
+// Full-screen numeric keypad geometry, shared by drawNumpad() and the touch hit-testing in updateTouch().
+// Keys are 72x40 px (about 9 x 5 mm on the 2.0" panel) so they can be hit reliably with a fingertip.
+static const int NP_COL_X[3] = { 6, 82, 158 };        // Left edge of the three digit columns
+static const int NP_ROW_Y[4] = { 66, 109, 152, 195 }; // Top edge of the four key rows
+static const int NP_KEY_W = 72;
+static const int NP_KEY_H = 40;
+static const int NP_ACT_X = 236;                      // Right-hand action column: CANCEL above OK
+static const int NP_ACT_W = 78;
+static const int NP_ACT_H = 83;                       // Each action button spans two key rows
+static const int NP_VAL_Y = 28;                       // Value display row
+static const int NP_VAL_H = 34;
+static const int NP_SIGN_W = 70;                      // "+/-" button at the left of the value row (signed settings only)
 
-  // Show "+/-" sign toggle button when editing signed parameters (Col. Limit s8 or Drip Offset s21)
-  if (data.activeSetting == 8 || data.activeSetting == 21) {
-    canvas.setTextSize(1.5);
-    drawButton(32, 57, 56, 26, "+/-", c_outline, TFT_YELLOW);
-    canvas.setTextSize(2.0);
+// Draws the full-screen numeric keypad for entering parameter values or the calibration reference weight
+void DisplayManager::drawNumpad() {
+  canvas.fillScreen(c_banner);
+
+  // Title: setting name and unit
+  int labelIdx = constrain(data.activeSetting, 0, 24);
+  char title[48];
+  if (settingUnits[labelIdx][0] != '\0' && labelIdx != 23) {
+    snprintf(title, sizeof(title), "%s (%s)", settingNames[labelIdx], settingUnits[labelIdx]);
+  } else {
+    snprintf(title, sizeof(title), "%s", settingNames[labelIdx]);
   }
-  
+  canvas.setTextDatum(middle_center);
+  canvas.setTextColor(c_bannerTxt, c_banner);
+  canvas.setTextSize(1.6);
+  canvas.drawString(title, 160, 14);
+  canvas.setTextSize(2.0);
+
+  // Value row, with a "+/-" sign toggle for signed parameters (Col. Limit s8 or Drip Offset s21)
+  bool signedSetting = (data.activeSetting == 8 || data.activeSetting == 21);
+  int valX = signedSetting ? (6 + NP_SIGN_W + 4) : 6;
+  int valW = 314 - valX;
+  canvas.fillRoundRect(valX, NP_VAL_Y, valW, NP_VAL_H, 6, TFT_BLACK);
+  if (data.numpadStr.length() > 0) {
+    canvas.setTextColor(TFT_WHITE, TFT_BLACK);
+    canvas.drawString(data.numpadStr.c_str(), valX + valW / 2, NP_VAL_Y + NP_VAL_H / 2);
+  } else {
+    // Nothing typed yet: show the current value in grey (OK with nothing typed keeps it unchanged)
+    char cur[24];
+    snprintf(cur, sizeof(cur), "%d", getSettingValue(data.activeSetting));
+    canvas.setTextColor(canvas.color565(110, 110, 110), TFT_BLACK);
+    canvas.drawString(cur, valX + valW / 2, NP_VAL_Y + NP_VAL_H / 2);
+  }
+  if (signedSetting) {
+    drawButton(6, NP_VAL_Y, NP_SIGN_W, NP_VAL_H, "+/-", c_outline, TFT_YELLOW);
+  }
+
   const char* keys[12] = {"1","2","3","4","5","6","7","8","9","DEL","0","CLR"};
-  int cols[3] = {50, 115, 180}; int rows[4] = {90, 118, 146, 174};
-  
-  for(int r = 0; r < 4; r++) {
-     for(int c = 0; c < 3; c++) {
-        drawButton(cols[c], rows[r], 60, 25, keys[r * 3 + c], c_outline, TFT_WHITE);
-     }
+  for (int r = 0; r < 4; r++) {
+    for (int c = 0; c < 3; c++) {
+      drawButton(NP_COL_X[c], NP_ROW_Y[r], NP_KEY_W, NP_KEY_H, keys[r * 3 + c], c_outline, TFT_WHITE);
+    }
   }
-  drawButton(245, 90, 50, 53, "CAN", TFT_MAROON, TFT_WHITE);
-  drawButton(245, 146, 50, 53, "OK", TFT_DARKGREEN, TFT_WHITE);
+  canvas.setTextSize(1.6);
+  drawButton(NP_ACT_X, NP_ROW_Y[0], NP_ACT_W, NP_ACT_H, "CANCEL", TFT_MAROON, TFT_WHITE);
+  canvas.setTextSize(2.0);
+  drawButton(NP_ACT_X, NP_ROW_Y[2], NP_ACT_W, NP_ACT_H, "OK", TFT_DARKGREEN, TFT_WHITE);
 }
 
 // Formats seconds into human-readable duration (e.g., "2m 15s" or "45s") for the completion screen
@@ -1049,27 +1100,37 @@ void DisplayManager::drawActiveDipPage() {
 void DisplayManager::drawStopConfirmPage() {
   canvas.fillScreen(c_bg); 
   drawTopBanner();
-  canvas.setTextDatum(middle_center); 
-  if (data.lowWaxTriggered) {
+  canvas.setTextDatum(middle_center);
+  if (data.faultTriggered) {
+    canvas.setTextSize(1.6);
+    canvas.setTextColor(TFT_ORANGE, c_bg);
+    canvas.drawString(data.faultText.c_str(), 160, 65);
+    canvas.setTextSize(2.0);
+    canvas.setTextColor(TFT_WHITE, c_bg);
+    canvas.drawString("Resume or abort the run?", 160, 105);
+  } else if (data.lowWaxTriggered) {
     canvas.setTextSize(1.6);
     canvas.setTextColor(TFT_ORANGE, c_bg);
     canvas.drawString("Low Wax! Pot below Soft Limit", 160, 65);
     canvas.setTextSize(2.0);
     canvas.setTextColor(TFT_WHITE, c_bg);
-    canvas.drawString("Abort current dipping?", 160, 105);
+    canvas.drawString("Resume or abort the run?", 160, 105);
   } else if (data.collisionTriggered) {
     canvas.setTextSize(1.6);
     canvas.setTextColor(TFT_ORANGE, c_bg);
     canvas.drawString("Collision! Raised to top rest", 160, 65);
     canvas.setTextSize(2.0);
     canvas.setTextColor(TFT_WHITE, c_bg);
-    canvas.drawString("Abort current dipping?", 160, 105);
+    canvas.drawString("Resume or abort the run?", 160, 105);
   } else {
+    canvas.setTextColor(TFT_ORANGE, c_bg);
+    canvas.drawString("Run paused", 160, 65);
     canvas.setTextColor(TFT_WHITE, c_bg);
-    canvas.drawString("Abort current dipping?", 160, 80);
+    canvas.drawString("Resume or abort the run?", 160, 105);
   }
-  drawButton(20, 150, 130, 70, "NO", c_outline, TFT_WHITE); 
-  drawButton(170, 150, 130, 70, "YES", TFT_RED, TFT_WHITE);
+  // The buttons say what they do, so they cannot be misread as answers to a yes/no question
+  drawButton(20, 150, 130, 70, "RESUME", c_active, TFT_BLACK);
+  drawButton(170, 150, 130, 70, "ABORT", TFT_RED, TFT_WHITE);
 }
 
 // Draws the post-dip summary screen (either green "Success!" or red "cancelled")
@@ -1083,7 +1144,22 @@ void DisplayManager::drawDipDonePage() {
 
   const char* candleType = data.isActiveSlimProfile ? "Slim" : "Std.";
 
-  if (!data.dipWasAborted) {
+  if (data.maxDipsTriggered) {
+    // Weight-mode run ended by the Max Dips safety limit before reaching the target weight
+    char line1[64];
+    snprintf(line1, sizeof(line1), "Stopped after %d dips", data.currentDipCount);
+
+    char line2[64];
+    snprintf(line2, sizeof(line2), "Weight: %dg of %dg", (int)roundf(data.currentWeight),
+             data.isActiveSlimProfile ? data.s_slimWt : data.s_stdWt);
+
+    canvas.setTextColor(TFT_ORANGE, c_bg);
+    canvas.drawString(line1, 160, 75);
+    canvas.setTextColor(TFT_WHITE, c_bg);
+    canvas.drawString(line2, 160, 115);
+
+    drawButton(10, 144, 300, 75, "BACK", c_btn2, TFT_WHITE);
+  } else if (!data.dipWasAborted) {
     // Success Screen
     char line1[64];
     snprintf(line1, sizeof(line1), "Success! %s ready", candleType);
@@ -1138,7 +1214,7 @@ void DisplayManager::renderCurrentPage() {
       drawMachineHub();
       break;
     case PAGE_SETTING_DIPPING: 
-      if (data.showNumpad) drawNumpad(); else drawSettingsList(dippingSettingIndices, 4); 
+      if (data.showNumpad) drawNumpad(); else drawSettingsList(dippingSettingIndices, 5); 
       break;
     case PAGE_SETTING_TIMING: 
       if (data.showNumpad) drawNumpad(); else drawSettingsList(timingSettingIndices, 4); 
@@ -1193,6 +1269,8 @@ void DisplayManager::startDippingProcess(bool isWeight, bool isSlim) {
   data.dipWasAborted = false; 
   data.collisionTriggered = false;
   data.lowWaxTriggered = false;
+  data.faultTriggered = false;
+  data.maxDipsTriggered = false;
   data.currentDipCount = 1;
   data.finalElapsedSeconds = 0;
   data.currentPhaseText = "Dip 1: Lowering...";
@@ -1216,9 +1294,11 @@ void DisplayManager::startDippingProcess(bool isWeight, bool isSlim) {
 
 // Records elapsed time (and updates history if not aborted) before switching to PAGE_DIP_DONE
 void DisplayManager::endDippingProcess(bool aborted, int elapsedSeconds) {
-  data.dipWasAborted = aborted; 
+  data.dipWasAborted = aborted;
   data.collisionTriggered = false;
   data.lowWaxTriggered = false;
+  data.faultTriggered = false;
+  data.maxDipsTriggered = false;
   if (elapsedSeconds > 0) {
     data.finalElapsedSeconds = elapsedSeconds;
   } else {
@@ -1267,6 +1347,11 @@ static bool handleRightScrollTouch(int tx, int ty, int totalItems, DisplayData& 
 UiEvent DisplayManager::updateTouch() {
   UiEvent eventTriggered = UI_EVENT_NONE;
 
+  // No finger on the screen: any "ignore the release of the touch that stopped motion" request is spent
+  if (M5.Touch.getCount() == 0) {
+    data.justStoppedByTouch = false;
+  }
+
   if (M5.Touch.getCount() > 0) {
     auto touch = M5.Touch.getDetail();
 
@@ -1300,7 +1385,7 @@ UiEvent DisplayManager::updateTouch() {
       if (data.showNumpad) {
         // "+/-" sign toggle button when editing signed parameters (Col. Limit s8 or Drip Offset s21)
         if ((data.activeSetting == 8 || data.activeSetting == 21) &&
-            tx >= 30 && tx <= 90 && ty >= 55 && ty <= 85) {
+            tx >= 6 && tx <= 6 + NP_SIGN_W && ty >= NP_VAL_Y && ty <= NP_VAL_Y + NP_VAL_H) {
           if (data.numpadStr.startsWith("-")) {
             data.numpadStr.remove(0, 1);
           } else {
@@ -1310,10 +1395,9 @@ UiEvent DisplayManager::updateTouch() {
           return eventTriggered;
         }
 
-        int cols[3] = {50, 115, 180}; int rows[4] = {90, 118, 146, 174};
-        for(int r = 0; r < 4; r++) { 
+        for(int r = 0; r < 4; r++) {
           for(int c = 0; c < 3; c++) {
-            if (tx >= cols[c] && tx <= cols[c] + 60 && ty >= rows[r] && ty <= rows[r] + 25) {
+            if (tx >= NP_COL_X[c] && tx <= NP_COL_X[c] + NP_KEY_W && ty >= NP_ROW_Y[r] && ty <= NP_ROW_Y[r] + NP_KEY_H) {
                int k = r * 3 + c;
                if (k < 9) data.numpadStr += String(k + 1); 
                else if (k == 9 && data.numpadStr.length() > 0) data.numpadStr.remove(data.numpadStr.length() - 1);
@@ -1324,15 +1408,22 @@ UiEvent DisplayManager::updateTouch() {
             }
           }
         }
-        if (tx >= 245 && tx <= 295) {
-          if (ty >= 90 && ty <= 143) { // "CAN" (Cancel) button
+        if (tx >= NP_ACT_X && tx <= NP_ACT_X + NP_ACT_W) {
+          if (ty >= NP_ROW_Y[0] && ty <= NP_ROW_Y[0] + NP_ACT_H) { // "CANCEL" button
             data.showNumpad = false; 
             data.pageChanged = true; 
           } 
-          else if (ty >= 146 && ty <= 199) { // "OK" (Confirm) button
+          else if (ty >= NP_ROW_Y[2] && ty <= NP_ROW_Y[2] + NP_ACT_H) { // "OK" (Confirm) button
+            // Nothing typed (or only a minus sign): treat OK as Cancel. Saving 0 here used to switch off
+            // protections such as the Soft Limit by accident.
+            if (data.numpadStr.length() == 0 || data.numpadStr == "-") {
+              data.showNumpad = false;
+              data.pageChanged = true;
+              return eventTriggered;
+            }
             int val = data.numpadStr.toInt();
             setSettingValue(data.activeSetting, val);
-            data.showNumpad = false; 
+            data.showNumpad = false;
             data.pageChanged = true;
             if (data.activeSetting == 23) {
               eventTriggered = UI_EVENT_CALIBRATE_SCALE;
@@ -1345,21 +1436,28 @@ UiEvent DisplayManager::updateTouch() {
       }
 
       // 2. Touching anywhere during an active dip pauses and opens the Abort Confirm modal
-      if (data.currentPage == PAGE_ACTIVE_DIP) { 
+      if (data.currentPage == PAGE_ACTIVE_DIP) {
         data.collisionTriggered = false;
         data.lowWaxTriggered = false;
+        data.faultTriggered = false;
         data.currentPage = PAGE_STOP_CONFIRM; 
         data.stopConfirmEnterTime = millis();
         data.pageChanged = true; 
       }
-      // 3. Abort Confirm modal ("NO" resumes dipping, "YES" aborts dipping)
+      // 3. Pause / alert modal ("RESUME" on the left continues dipping, "ABORT" on the right ends the run)
       else if (data.currentPage == PAGE_STOP_CONFIRM) {
+        // The finger that paused the run is only now lifting: that is not a button press
+        if (data.justStoppedByTouch) {
+          data.justStoppedByTouch = false;
+          return UI_EVENT_NONE;
+        }
         if (millis() - data.stopConfirmEnterTime < 500) {
           return UI_EVENT_NONE;
         }
-        if (tx >= 20 && tx <= 150 && ty >= 150 && ty <= 220) { 
+        if (tx >= 20 && tx <= 150 && ty >= 150 && ty <= 220) {
           data.collisionTriggered = false;
           data.lowWaxTriggered = false;
+          data.faultTriggered = false;
           data.currentPage = PAGE_ACTIVE_DIP; 
           data.pageChanged = true; 
           data.lastUiTick = millis(); 
@@ -1503,7 +1601,7 @@ UiEvent DisplayManager::updateTouch() {
                data.currentPage == PAGE_SETTING_COOLING ||
                data.currentPage == PAGE_SETTING_JIG) {
         const int* listPtr = dippingSettingIndices;
-        int listCount = 4;
+        int listCount = 5;
         if (data.currentPage == PAGE_SETTING_SPEEDS)       { listPtr = speedsSettingIndices;  listCount = 4; }
         else if (data.currentPage == PAGE_SETTING_TIMING)  { listPtr = timingSettingIndices;  listCount = 4; }
         else if (data.currentPage == PAGE_SETTING_COOLING) { listPtr = coolingSettingIndices; listCount = 3; }

@@ -52,6 +52,9 @@ int lastMinute = -1;              // Tracks the last RTC minute rendered so the 
 float lastPosDisplayed = -999.0f; // Tracks last displayed Z position on Manual screen to avoid unnecessary redraws
 float lastWtDisplayed = -999.0f;  // Tracks last displayed weight on Manual screen to avoid unnecessary redraws
 
+static bool g_brightnessDirty = false; // Brightness changed by a slider drag and not yet saved to flash
+static bool g_volumeDirty = false;     // Volume changed by a slider drag and not yet saved to flash
+
 // --- Helper Functions ---
 static unsigned long g_actionStartTime = 0;
 
@@ -59,6 +62,7 @@ static unsigned long g_actionStartTime = 0;
 // so the initial button press on the touchscreen doesn't immediately trigger an emergency stop.
 void markActionStarted() {
   g_actionStartTime = millis();
+  display.getData().justStoppedByTouch = false;
 }
 
 // Callback passed into blocking motor loops (Homing, Dip Bot, and Dipping Lower/Raise phases).
@@ -103,24 +107,58 @@ bool checkManualStop() {
   return false;
 }
 
-// Connects to UK NTP time servers (with GMT/BST daylight saving rules) and updates the M5Stack hardware RTC
-void syncNtpTime() {
-  if (WiFi.status() == WL_CONNECTED) {
-    configTzTime("GMT0BST,M3.5.0/1,M10.5.0/2", "pool.ntp.org", "time.nist.gov");
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 5000)) {
-      m5::rtc_datetime_t dt;
-      dt.date.year = timeinfo.tm_year + 1900;
-      dt.date.month = timeinfo.tm_mon + 1;
-      dt.date.date = timeinfo.tm_mday;
-      dt.date.weekDay = timeinfo.tm_wday;
-      dt.time.hours = timeinfo.tm_hour;
-      dt.time.minutes = timeinfo.tm_min;
-      dt.time.seconds = timeinfo.tm_sec;
-      M5.Rtc.setDateTime(dt);
-      Serial.println("RTC updated via NTP!");
-    }
+// --- Non-blocking NTP clock sync ---
+// Wi-Fi often takes longer than the 3 s boot wait to connect, so instead of a single attempt in setup()
+// the clock is synced whenever the connection comes up, without ever blocking the main loop.
+static bool g_ntpRequested = false; // SNTP has been started for the current Wi-Fi connection
+static bool g_rtcSynced = false;    // Hardware RTC has been written from NTP for the current connection
+
+// Call regularly from loop(). Starts SNTP (UK time with GMT/BST rules) once Wi-Fi is connected and copies
+// the time into the M5Stack hardware RTC as soon as the first NTP reply has arrived.
+void serviceNtpSync() {
+  if (WiFi.status() != WL_CONNECTED) {
+    g_ntpRequested = false;
+    g_rtcSynced = false;
+    return;
   }
+  if (!g_ntpRequested) {
+    configTzTime("GMT0BST,M3.5.0/1,M10.5.0/2", "pool.ntp.org", "time.nist.gov");
+    g_ntpRequested = true;
+    return;
+  }
+  if (g_rtcSynced) return;
+
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 0)) { // 0 ms timeout: just checks whether SNTP has set the clock yet
+    m5::rtc_datetime_t dt;
+    dt.date.year = timeinfo.tm_year + 1900;
+    dt.date.month = timeinfo.tm_mon + 1;
+    dt.date.date = timeinfo.tm_mday;
+    dt.date.weekDay = timeinfo.tm_wday;
+    dt.time.hours = timeinfo.tm_hour;
+    dt.time.minutes = timeinfo.tm_min;
+    dt.time.seconds = timeinfo.tm_sec;
+    M5.Rtc.setDateTime(dt);
+    g_rtcSynced = true;
+    lastMinute = -1; // Redraw the banner clock
+    Serial.println("RTC updated via NTP!");
+  }
+}
+
+// Escapes text for safe use inside an HTML attribute (the saved SSID is echoed into the setup form)
+static String htmlEscape(const String& in) {
+  String out;
+  out.reserve(in.length() + 8);
+  for (size_t i = 0; i < in.length(); i++) {
+    char c = in[i];
+    if (c == '&') out += "&amp;";
+    else if (c == '<') out += "&lt;";
+    else if (c == '>') out += "&gt;";
+    else if (c == '\'') out += "&#39;";
+    else if (c == '"') out += "&quot;";
+    else out += c;
+  }
+  return out;
 }
 
 // Starts an open Wi-Fi Access Point ("BeeMine-Setup") and captive portal web page at http://192.168.4.1
@@ -135,6 +173,24 @@ void startWebPortal() {
   // Redirect all DNS queries (*) to the ESP32's SoftAP IP (192.168.4.1)
   dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
 
+  // The URL handlers only need registering once; registering them again on every portal start
+  // would keep adding duplicate entries to the web server's handler list.
+  static bool handlersRegistered = false;
+  if (handlersRegistered) {
+    webServer.begin();
+    display.setCurrentPage(PAGE_WIFI_PORTAL);
+    return;
+  }
+  handlersRegistered = true;
+
+  // Catch-all: phones and laptops test for internet access by requesting a known URL (for example
+  // /generate_204 or /hotspot-detect.html) right after joining. Answering every unknown URL with a redirect
+  // to the setup page is what makes them pop up the "sign in to network" window automatically.
+  webServer.onNotFound([]() {
+    webServer.sendHeader("Location", "http://192.168.4.1/", true);
+    webServer.send(302, "text/plain", "");
+  });
+
   // Serve the HTML Wi-Fi configuration form
   webServer.on("/", []() {
     DisplayData& d = display.getData();
@@ -144,8 +200,8 @@ void startWebPortal() {
                   "input{background:#333;color:#fff;} button{background:#FFEB82;color:#000;font-weight:bold;cursor:pointer;}</style></head><body>"
                   "<h2>Bee Mine Wi-Fi Setup</h2>"
                   "<form action='/save' method='POST'>"
-                  "<input type='text' name='ssid' placeholder='Wi-Fi Name' required value='" + d.wifiSSID + "'><br>"
-                  "<input type='password' name='pass' placeholder='Password' required><br>"
+                  "<input type='text' name='ssid' placeholder='Wi-Fi Name' required value='" + htmlEscape(d.wifiSSID) + "'><br>"
+                  "<input type='password' name='pass' placeholder='Password (leave empty if none)'><br>"
                   "<button type='submit'>Save & Connect</button>"
                   "</form></body></html>";
     webServer.send(200, "text/html", html);
@@ -153,10 +209,10 @@ void startWebPortal() {
 
   // Handle form submission: save new Wi-Fi credentials to NVS and reconnect in Station mode
   webServer.on("/save", []() {
-    if (webServer.hasArg("ssid") && webServer.hasArg("pass")) {
+    if (webServer.hasArg("ssid") && webServer.arg("ssid").length() > 0) {
       DisplayData& d = display.getData();
       d.wifiSSID = webServer.arg("ssid");
-      String wifiPass = webServer.arg("pass");
+      String wifiPass = webServer.arg("pass"); // Empty for an open network
       
       prefs.putString("wssid", d.wifiSSID);
       prefs.putString("wpass", wifiPass);
@@ -224,6 +280,7 @@ void setup() {
   data.s_extractSpeed  = prefs.getInt("s20", 20);
   data.s_dripOffset    = prefs.getInt("s21", 15);
   data.s_dripTime      = prefs.getInt("s22", 3);
+  data.s_maxDips       = prefs.getInt("s24", 60);
   data.meltBasesEnabled = prefs.getBool("mb_en", false);
   data.lastWaxLevelMM  = prefs.getFloat("wax_lvl", 0.0f);
   data.s_brightness    = prefs.getInt("bright", 50);
@@ -283,11 +340,8 @@ void setup() {
       soundMgr.update();
       delay(20);
     }
-
-    // If connected to Wi-Fi, synchronize the hardware RTC clock via NTP
-    if (WiFi.status() == WL_CONNECTED) {
-      syncNtpTime();
-    }
+    // The hardware RTC is synchronized from NTP by serviceNtpSync() in loop() as soon as Wi-Fi is up,
+    // even if the connection takes longer than this 3 second wait.
   }
 
   unsigned long splashWait = millis();
@@ -318,6 +372,7 @@ void saveProcessHistoryToPrefs() {
 // States of an automated candle dipping cycle
 enum DipPhase {
   DIP_PHASE_IDLE = 0,
+  DIP_PHASE_PREPARE,       // Home the carriage if needed, park at top rest and auto-tare the scale before Dip 1
   DIP_PHASE_LOWERING,      // Moving carriage down until capacitive wax sensor triggers (monitors collision & low-wax limit)
   DIP_PHASE_HOLDING,       // Dwelling submerged in molten wax (s_dip1Time for dip 1, s_subDipTime for dips 2+)
   DIP_PHASE_RAISING,       // Extracting slowly from wax, optional Drip-Off Pause, fast raise to top switch, backoff, and weighing
@@ -329,6 +384,7 @@ enum DipPhase {
 static DipPhase currentDipPhase = DIP_PHASE_IDLE;
 static unsigned long phaseStartTime = 0;
 static unsigned long holdDurationMs = 0;
+static bool pauseRetractDone = false; // True once the carriage has been dealt with for the current pause / alert screen
 
 // Computes the cooling rest time (in seconds) for the current dip using a linear curve
 // between s_coolTime1 (1st dip) and s_coolTimeEnd (last dip). If either is 0, s_coolTime is used.
@@ -360,6 +416,43 @@ void finishDippingWithMelody() {
   soundMgr.playFinishTune(data.s_finishTune, false);
 }
 
+// Reasons the dipping run can be interrupted by the machine itself
+enum DipAlert { ALERT_COLLISION, ALERT_LOW_WAX, ALERT_FAULT };
+
+// Opens the alert / confirm screen with the matching message and plays the alert tune.
+// The caller is responsible for having stopped (and where possible retracted) the carriage first.
+void raiseDipAlert(DipAlert kind, const char* faultText = "") {
+  DisplayData& data = display.getData();
+  data.collisionTriggered = (kind == ALERT_COLLISION);
+  data.lowWaxTriggered    = (kind == ALERT_LOW_WAX);
+  data.faultTriggered     = (kind == ALERT_FAULT);
+  data.faultText          = faultText;
+  data.currentPage = PAGE_STOP_CONFIRM;
+  data.stopConfirmEnterTime = millis();
+  pauseRetractDone = true;
+  Serial.printf("Dip alert: %s %s\n",
+                kind == ALERT_COLLISION ? "collision" : (kind == ALERT_LOW_WAX ? "low wax" : "fault"), faultText);
+  soundMgr.playAlertTune(data.s_alertTune, false);
+  display.markPageChanged(true);
+}
+
+// Raises the carriage to the top rest position. If the top switch cannot be found the carriage is
+// stopped where it is and a fault is shown instead of silently carrying on with a wrong position.
+bool retractOrFault() {
+  DisplayData& data = display.getData();
+  pauseRetractDone = true;
+  bool ok = motorMgr.retractToTopRest((float)data.s_upSpeed);
+  data.currentPosition = motorMgr.getCurrentPositionMM();
+  // Restart the confirm screen's touch guard now that the (multi-second) retract has finished, so the
+  // finger lifting from the touch that paused the run cannot land on RESUME / ABORT.
+  data.stopConfirmEnterTime = millis();
+  if (!ok) {
+    raiseDipAlert(ALERT_FAULT, "Top switch not found!");
+  }
+  display.markPageChanged(true);
+  return ok;
+}
+
 // Executes the automated dipping state machine when on PAGE_ACTIVE_DIP
 void processActiveDipping() {
   DisplayData& data = display.getData();
@@ -373,35 +466,90 @@ void processActiveDipping() {
     return;
   }
 
-  // If on confirmation modal, ensure the carriage is safely raised to top rest (never stuck in molten wax!)
+  // On the pause / alert screen: make sure the carriage is raised to top rest ONCE (never left in molten wax),
+  // then simply wait for the user's choice.
   if (data.currentPage == PAGE_STOP_CONFIRM) {
-    if (data.currentPosition > 0.5f || !sensorMgr.readRawTopLimit()) {
-      motorMgr.retractToTopRest((float)data.s_upSpeed);
-      data.currentPosition = 0.0f;
-      if (currentDipPhase == DIP_PHASE_HOLDING || currentDipPhase == DIP_PHASE_RAISING) {
-        currentDipPhase = DIP_PHASE_LOWERING;
+    if (!pauseRetractDone) {
+      pauseRetractDone = true;
+      if (motorMgr.isMoving() || !motorMgr.isHomed() || motorMgr.getCurrentPositionMM() > 0.5f) {
+        motorMgr.stopMotor();
+        if (currentDipPhase == DIP_PHASE_HOLDING || currentDipPhase == DIP_PHASE_RAISING) {
+          currentDipPhase = DIP_PHASE_LOWERING; // The interrupted dip is repeated on resume
+        }
+        retractOrFault();
       }
-      display.markPageChanged(true);
-    } else {
-      motorMgr.stopMotor();
     }
     return;
   }
+  pauseRetractDone = false;
 
   // Initialize active dipping phase if entering from IDLE
   if (currentDipPhase == DIP_PHASE_IDLE) {
-    currentDipPhase = DIP_PHASE_LOWERING;
-    data.currentPhaseText = "Dip " + String(data.currentDipCount) + ": Lowering...";
-    display.markPageChanged(true);
+    currentDipPhase = DIP_PHASE_PREPARE;
   }
 
   char pTxt[64];
 
+  // The position (and therefore the soft limit and wax level) is only meaningful once the top switch
+  // has been found, so home first whenever that is not the case: at the start of a run after power-up,
+  // or when resuming after a fault.
+  if (!motorMgr.isHomed()) {
+    data.currentPhaseText = "Homing to top switch...";
+    display.markPageChanged(true);
+    display.renderCurrentPage();
+    markActionStarted();
+    bool homedOk = motorMgr.performHoming((float)data.s_upSpeed, checkManualStop);
+    motorMgr.applyConfigMode(data.s_tmcMode, (float)data.s_downSpeed, data.s_tmcThreshold);
+    data.currentPosition = motorMgr.getCurrentPositionMM();
+    if (!homedOk) {
+      // If the user touched the screen, checkManualStop() has already opened the pause screen
+      if (data.currentPage == PAGE_ACTIVE_DIP) {
+        raiseDipAlert(ALERT_FAULT, "Homing failed: check top switch");
+      }
+      return;
+    }
+    if (currentDipPhase == DIP_PHASE_HOLDING || currentDipPhase == DIP_PHASE_RAISING) {
+      currentDipPhase = DIP_PHASE_LOWERING;
+    }
+    display.markPageChanged(true);
+  }
+
   switch (currentDipPhase) {
+    // PHASE 0: Park at top rest and zero the scale so only added wax is weighed
+    case DIP_PHASE_PREPARE: {
+      if (motorMgr.getCurrentPositionMM() > 0.5f) {
+        data.currentPhaseText = "Raising to top...";
+        display.markPageChanged(true);
+        display.renderCurrentPage();
+        if (!retractOrFault()) return;
+      }
+      data.currentPhaseText = "Zeroing scale...";
+      display.markPageChanged(true);
+      display.renderCurrentPage();
+      scaleMgr.tare(10); // Auto-tare in RAM (10 fresh conversions) so current jig weight is zeroed out before Dip 1
+      data.currentWeight = 0.0f;
+
+      currentDipPhase = DIP_PHASE_LOWERING;
+      snprintf(pTxt, sizeof(pTxt), "Dip %d: Lowering...", data.currentDipCount);
+      data.currentPhaseText = String(pTxt);
+      display.markPageChanged(true);
+      break;
+    }
+
     // PHASE 1: Lower carriage into wax pot until capacitive sensor detects wax surface
     // Uses fast Down Speed (s_downSpeed) in open air, then slows to Immerse Speed (s_immerseSpeed)
     // 15mm before the bottom of the candle jig touches the wax surface (lastWaxLevelMM - s_jigLength).
     case DIP_PHASE_LOWERING: {
+      // The wax sensor must read "dry" at the top. If it is already triggered (wax film on the sensor
+      // face, wiring fault) it cannot find the surface, and the dip would be "held" in mid-air.
+      if (sensorMgr.readRawCapSensor()) {
+        delay(30);
+        if (sensorMgr.readRawCapSensor()) {
+          raiseDipAlert(ALERT_FAULT, "Wax sensor ON at top: clean it");
+          return;
+        }
+      }
+
       float fastDownSpeed = (data.s_downSpeed > 0) ? (float)data.s_downSpeed : 50.0f;
       float immerseSpeed  = (data.s_immerseSpeed > 0) ? (float)data.s_immerseSpeed : fastDownSpeed;
 
@@ -411,57 +559,73 @@ void processActiveDipping() {
       // Start slowing down 15mm before the candle base touches the wax
       float slowStartMM = waxKnown ? max(0.0f, baseTouchMM - 15.0f) : 0.0f;
 
-      bool isImmersingSlow = (data.currentPosition >= slowStartMM);
-      float activeSpeed = isImmersingSlow ? immerseSpeed : fastDownSpeed;
-      motorMgr.applyConfigMode(data.s_tmcMode, activeSpeed, data.s_tmcThreshold);
-
-      digitalWrite(PIN_MOTOR_DIR, LOW); // DOWN direction
-      unsigned long delayUs = (unsigned long)(1000000.0f / (activeSpeed * MotorManager::STEPS_PER_MM));
-      if (delayUs < 20) delayUs = 20;
-
-      unsigned long startTimeout = millis();
-      float stepDistMM = 1.0f / MotorManager::STEPS_PER_MM;
+      // Furthest the carriage may travel looking for wax (Soft Limit, or the hard cap if that is switched off)
+      float limitMM = motorMgr.getMaxTravelMM();
 
       // Capture baseline weight at the start of this downward stroke so collision detection works
       // accurately on any dip (even when candles already weigh +300g..+2500g from previous dips)
       float baselineWeight = scaleMgr.getWeightGrams();
       int collisionHits = 0;
 
-      // Step downward until wax sensor triggers, soft limit is reached, collision occurs, or user touches screen
-      while (!sensorMgr.readRawCapSensor()) {
+      bool isImmersingSlow = false;
+      float activeSpeed = -1.0f;
+      Debounce waxDebounce;
+
+      // Run downward until wax sensor triggers, soft limit is reached, collision occurs, or user touches screen
+      while (true) {
+        float pos = motorMgr.getCurrentPositionMM();
+        data.currentPosition = pos;
+
+        // Wax surface found: the sensor must read wet continuously for 3 ms so a noise spike is ignored
+        if (waxDebounce.update(sensorMgr.readRawCapSensor(), 3000)) break;
+
         if (checkManualStop()) {
           // Immediately retract carriage to top rest position so candles are never left hanging near/in wax
-          motorMgr.retractToTopRest((float)data.s_upSpeed);
-          data.currentPosition = 0.0f;
+          retractOrFault();
           return;
         }
 
-        // Switch from fast open-air Down Speed to slower Immerse Speed just before candle base touches wax
-        if (!isImmersingSlow && data.currentPosition >= slowStartMM) {
-          isImmersingSlow = true;
-          activeSpeed = immerseSpeed;
+        // Fast open-air Down Speed, then slower Immerse Speed just before candle base touches wax
+        bool slowNow = (pos >= slowStartMM);
+        float wantSpeed = slowNow ? immerseSpeed : fastDownSpeed;
+        if (wantSpeed != activeSpeed) {
+          activeSpeed = wantSpeed;
           motorMgr.applyConfigMode(data.s_tmcMode, activeSpeed, data.s_tmcThreshold);
-          delayUs = (unsigned long)(1000000.0f / (activeSpeed * MotorManager::STEPS_PER_MM));
-          if (delayUs < 20) delayUs = 20;
-          if (immerseSpeed != fastDownSpeed) {
+          if (slowNow && !isImmersingSlow && immerseSpeed != fastDownSpeed) {
             snprintf(pTxt, sizeof(pTxt), "Dip %d: Immersing...", data.currentDipCount);
             data.currentPhaseText = String(pTxt);
             display.markPageChanged(true);
             display.renderCurrentPage();
           }
+          isImmersingSlow = slowNow;
         }
+        motorMgr.runDown(activeSpeed);
 
         // Poll load cell non-blockingly (10Hz) to check for upward collision against unmelted/solid wax
         if (scaleMgr.update()) {
           data.currentWeight = scaleMgr.getWeightGrams();
           if (data.s_colLimit < 0) {
+            // Candles floating in liquid wax lose weight on the scale (buoyancy) without touching anything.
+            // That expected loss can be as large as the wax already on the candles, and grows with how much
+            // of the candle is under the surface, so it is added to the allowed drop. A real collision takes
+            // the weight of the jig as well, so it still exceeds this. The check stays active for the whole
+            // stroke, so a snag or misaligned arm in open air trips at the plain Col. Limit.
+            float buoyancyAllowance = 0.0f;
+            if (baselineWeight > 0.0f) {
+              float immersedFraction = 1.0f;
+              if (waxKnown) {
+                immersedFraction = constrain((pos - baseTouchMM) / (float)max(1, data.s_jigLength), 0.0f, 1.0f);
+              }
+              buoyancyAllowance = baselineWeight * immersedFraction;
+            }
+
             float weightDelta = data.currentWeight - baselineWeight;
-            if (weightDelta <= (float)data.s_colLimit) {
+            if (weightDelta <= (float)data.s_colLimit - buoyancyAllowance) {
               collisionHits++;
-              // Require 2 consecutive 10Hz samples below threshold to reject stepper start vibration
-              // and thick liquid wax buoyancy spikes
+              // Require 2 consecutive 10Hz samples below threshold to reject start-of-move vibration
               if (collisionHits >= 2) {
-                Serial.printf("Wax Collision Detected! Delta: %.1fg <= Limit: %dg. Retracting to top rest!\n", weightDelta, data.s_colLimit);
+                Serial.printf("Wax Collision Detected! Delta: %.1fg (limit %dg, buoyancy allowance %.1fg). Retracting to top rest!\n",
+                              weightDelta, data.s_colLimit, buoyancyAllowance);
                 motorMgr.stopMotor();
                 soundMgr.playBeep(400, 250);
                 data.currentPhaseText = "Collision! Raising to top...";
@@ -469,15 +633,9 @@ void processActiveDipping() {
                 display.renderCurrentPage();
 
                 // Retract carriage all the way up to top rest position (0.0mm) so jig isn't stuck in wax
-                motorMgr.retractToTopRest((float)data.s_upSpeed);
-                data.currentPosition = 0.0f;
-
-                data.collisionTriggered = true;
-                data.lowWaxTriggered = false;
-                data.currentPage = PAGE_STOP_CONFIRM;
-                data.stopConfirmEnterTime = millis();
-                soundMgr.playAlertTune(data.s_alertTune, false);
-                display.markPageChanged(true);
+                if (retractOrFault()) {
+                  raiseDipAlert(ALERT_COLLISION);
+                }
                 return;
               }
             } else {
@@ -486,9 +644,9 @@ void processActiveDipping() {
           }
         }
 
-        // Low Wax Depletion / Soft Limit Cutoff: if carriage reaches s_softLimit without capacitive sensor triggering,
+        // Low Wax Depletion / Soft Limit Cutoff: if carriage reaches the limit without capacitive sensor triggering,
         // the wax level has dropped below the reach of the carriage -> retract to top rest and alert user!
-        if (data.s_softLimit > 0 && data.currentPosition >= (float)data.s_softLimit) {
+        if (pos >= limitMM) {
           Serial.println("Low Wax Alert: Soft Limit reached without sensing wax! Retracting to top rest.");
           motorMgr.stopMotor();
           soundMgr.playBeep(350, 250);
@@ -496,37 +654,21 @@ void processActiveDipping() {
           display.markPageChanged(true);
           display.renderCurrentPage();
 
-          motorMgr.retractToTopRest((float)data.s_upSpeed);
-          data.currentPosition = 0.0f;
-
-          data.lowWaxTriggered = true;
-          data.collisionTriggered = false;
-          data.currentPage = PAGE_STOP_CONFIRM;
-          data.stopConfirmEnterTime = millis();
-          soundMgr.playAlertTune(data.s_alertTune, false);
-          display.markPageChanged(true);
+          if (retractOrFault()) {
+            raiseDipAlert(ALERT_LOW_WAX);
+          }
           return;
         }
 
-        digitalWrite(PIN_MOTOR_STEP, HIGH);
-        delayMicroseconds(3);
-        digitalWrite(PIN_MOTOR_STEP, LOW);
-
-        data.currentPosition += stepDistMM;
-        motorMgr.setCurrentPositionMM(data.currentPosition);
-
-        delayMicroseconds(delayUs);
-
-        if (millis() - startTimeout > 35000) break; // 35-second safety timeout guard
+        delayMicroseconds(300);
       }
 
       motorMgr.stopMotor();
+      data.currentPosition = motorMgr.getCurrentPositionMM();
 
-      // Record the Z-position of the wax surface whenever the capacitive sensor triggers
-      if (sensorMgr.readRawCapSensor()) {
-        data.lastWaxLevelMM = data.currentPosition;
-        prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
-      }
+      // Record the Z-position of the wax surface where the capacitive sensor triggered
+      data.lastWaxLevelMM = data.currentPosition;
+      prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
 
       currentDipPhase = DIP_PHASE_HOLDING;
       phaseStartTime = millis();
@@ -578,39 +720,43 @@ void processActiveDipping() {
       float dripPauseMM = dripEnabled ? constrain(baseClearMM - (float)data.s_dripOffset, 0.0f, data.lastWaxLevelMM) : -1.0f;
       bool dripPauseDone = !dripEnabled;
 
-      bool isExtractingSlow = (waxKnown && data.currentPosition > baseClearMM);
-      float activeSpeed = isExtractingSlow ? extractSpeed : fastUpSpeed;
-      motorMgr.applyConfigMode(data.s_tmcMode, activeSpeed, data.s_tmcThreshold);
+      float startPos = motorMgr.getCurrentPositionMM();
+      // The top switch sits 2 mm above 0.0 mm. If it has not been seen after this much travel, something is
+      // wrong (switch, wiring or badly lost steps): stop rather than drive on into the frame.
+      float maxTravelMM = max(startPos, 0.0f) + 30.0f;
 
-      digitalWrite(PIN_MOTOR_DIR, HIGH); // UP direction
-      unsigned long delayUs = (unsigned long)(1000000.0f / (activeSpeed * MotorManager::STEPS_PER_MM));
-      if (delayUs < 20) delayUs = 20;
+      bool isExtractingSlow = (waxKnown && startPos > baseClearMM);
+      float activeSpeed = -1.0f;
+      Debounce topDebounce;
+      bool topFound = false;
 
-      unsigned long startTimeout = millis();
-      float stepDistMM = 1.0f / MotorManager::STEPS_PER_MM;
+      // Run upward until top mechanical limit switch is hit or user touches screen
+      while (true) {
+        float pos = motorMgr.getCurrentPositionMM();
+        data.currentPosition = pos;
 
-      // Step upward until top mechanical limit switch is hit or user touches screen
-      while (!sensorMgr.readRawTopLimit()) {
+        if (topDebounce.update(sensorMgr.readRawTopLimit(), 2000)) { topFound = true; break; }
+        if (startPos - pos >= maxTravelMM) break;
+
         if (checkManualStop()) {
           // Finish raising to top rest before entering pause confirmation
-          motorMgr.retractToTopRest((float)data.s_upSpeed);
-          data.currentPosition = 0.0f;
           currentDipPhase = DIP_PHASE_LOWERING;
+          retractOrFault();
           return;
         }
 
         // Check if carriage has reached the Drip-Off Pause position
-        if (!dripPauseDone && data.currentPosition <= dripPauseMM) {
+        if (!dripPauseDone && pos <= dripPauseMM) {
           dripPauseDone = true;
-          motorMgr.stopMotor();
+          motorMgr.stopSmooth(); // Ramp down so the candles do not swing
+          motorMgr.waitUntilStopped();
 
           unsigned long dripStart = millis();
           unsigned long dripDurMs = (unsigned long)data.s_dripTime * 1000UL;
           while (millis() - dripStart < dripDurMs) {
             if (checkManualStop()) {
-              motorMgr.retractToTopRest((float)data.s_upSpeed);
-              data.currentPosition = 0.0f;
               currentDipPhase = DIP_PHASE_LOWERING;
+              retractOrFault();
               return;
             }
             int remDrip = (int)((dripDurMs - (millis() - dripStart) + 999) / 1000);
@@ -623,22 +769,16 @@ void processActiveDipping() {
             delay(10);
           }
 
-          // Resume upward motion after drip pause
-          digitalWrite(PIN_MOTOR_DIR, HIGH);
-          startTimeout = millis();
           snprintf(pTxt, sizeof(pTxt), "Dip %d: Raising...", data.currentDipCount);
           data.currentPhaseText = String(pTxt);
           display.markPageChanged(true);
           display.renderCurrentPage();
+          activeSpeed = -1.0f; // Re-apply speed after the pause
         }
 
         // Once the bottom of the candle jig is clear of the wax (and drip pause is done), speed up to Up Speed
-        if (isExtractingSlow && data.currentPosition <= baseClearMM && dripPauseDone) {
+        if (isExtractingSlow && pos <= baseClearMM && dripPauseDone) {
           isExtractingSlow = false;
-          activeSpeed = fastUpSpeed;
-          motorMgr.applyConfigMode(data.s_tmcMode, activeSpeed, data.s_tmcThreshold);
-          delayUs = (unsigned long)(1000000.0f / (activeSpeed * MotorManager::STEPS_PER_MM));
-          if (delayUs < 20) delayUs = 20;
           snprintf(pTxt, sizeof(pTxt), "Dip %d: Raising...", data.currentDipCount);
           if (data.currentPhaseText != String(pTxt)) {
             data.currentPhaseText = String(pTxt);
@@ -647,20 +787,24 @@ void processActiveDipping() {
           }
         }
 
-        digitalWrite(PIN_MOTOR_STEP, HIGH);
-        delayMicroseconds(3);
-        digitalWrite(PIN_MOTOR_STEP, LOW);
+        float wantSpeed = isExtractingSlow ? extractSpeed : fastUpSpeed;
+        if (wantSpeed != activeSpeed) {
+          activeSpeed = wantSpeed;
+          motorMgr.applyConfigMode(data.s_tmcMode, activeSpeed, data.s_tmcThreshold);
+        }
+        motorMgr.runUp(activeSpeed); // Slows automatically for the last few mm before the switch
 
-        data.currentPosition -= stepDistMM;
-        if (data.currentPosition < 0.0f) data.currentPosition = 0.0f;
-        motorMgr.setCurrentPositionMM(data.currentPosition);
-
-        delayMicroseconds(delayUs);
-
-        if (millis() - startTimeout > 35000) break; // 35-second safety timeout guard
+        delayMicroseconds(300);
       }
 
       motorMgr.stopMotor();
+
+      if (!topFound) {
+        motorMgr.clearHomed();
+        currentDipPhase = DIP_PHASE_LOWERING;
+        raiseDipAlert(ALERT_FAULT, "Top switch not found!");
+        return;
+      }
 
       // Back off 2.0mm from the top limit switch so mechanical switch spring pressure does not skew the load cell
       motorMgr.backoffFromTopLimit(2.0f);
@@ -689,6 +833,18 @@ void processActiveDipping() {
         if (data.currentDipCount >= targetDips) {
           processFinished = true;
         }
+      }
+
+      // Safety limit for Weight mode: if the target weight has still not been reached after s_maxDips dips
+      // (faulty scale, wrong calibration, empty pot...), stop with an alert instead of dipping forever.
+      if (!processFinished && isWeight && data.s_maxDips > 0 && data.currentDipCount >= data.s_maxDips) {
+        Serial.printf("Max Dips safety limit (%d) reached at %.1fg of %dg. Stopping run.\n",
+                      data.s_maxDips, data.currentWeight, targetWeight);
+        currentDipPhase = DIP_PHASE_IDLE;
+        display.endDippingProcess(true, (int)((millis() - data.dipStartTime) / 1000));
+        data.maxDipsTriggered = true;
+        soundMgr.playAlertTune(data.s_alertTune, false);
+        break;
       }
 
       if (processFinished) {
@@ -769,12 +925,16 @@ void processActiveDipping() {
       }
       display.renderCurrentPage();
       markActionStarted();
-      motorMgr.performMeltBases(targetBaseMM, (float)data.s_downSpeed, (float)data.s_upSpeed, data.s_baseMeltTime, checkManualStop);
+      bool meltOk = motorMgr.performMeltBases(targetBaseMM, (float)data.s_downSpeed, (float)data.s_upSpeed, data.s_baseMeltTime, checkManualStop);
       data.currentPosition = motorMgr.getCurrentPositionMM();
 
       // If user did not pause/stop during base melt, complete the dipping process
       if (data.currentPage == PAGE_ACTIVE_DIP) {
-        finishDippingWithMelody();
+        if (meltOk) {
+          finishDippingWithMelody();
+        } else {
+          raiseDipAlert(ALERT_FAULT, "Top switch not found!");
+        }
       }
       break;
     }
@@ -810,18 +970,46 @@ void loop() {
     webServer.handleClient();
   }
 
-  // Live screen refresh & manual jogging on Manual Control Page
+  // Keep the hardware clock in step with NTP whenever Wi-Fi is available (never blocks)
+  static unsigned long lastNtpService = 0;
+  if (millis() - lastNtpService >= 1000) {
+    lastNtpService = millis();
+    serviceNtpSync();
+  }
+
+  // Brightness and volume are applied live while the slider is dragged, but only written to flash
+  // once the finger has lifted, instead of on every frame of the drag.
+  if (M5.Touch.getCount() == 0) {
+    if (g_brightnessDirty) { prefs.putInt("bright", data.s_brightness); g_brightnessDirty = false; }
+    if (g_volumeDirty)     { prefs.putInt("vol", data.s_volume);        g_volumeDirty = false; }
+  }
+
+  // Live screen refresh & manual jogging on Manual Control Page.
+  // Jog moves are ramped by the step generator: this code only starts, re-targets and stops them.
+  static bool jogActive = false;
+  bool wantJog = (data.currentPage == PAGE_MANUAL) && (data.isUpPressed || data.isDownPressed);
+  if (!wantJog && jogActive) {
+    motorMgr.stopSmooth(); // Jog released or page left: ramp down to a halt
+    jogActive = false;
+  }
+
   if (data.currentPage == PAGE_MANUAL) {
     if (data.isUpPressed) {
-      // Stop upward jog if top limit switch is hit or position is already at 0.0mm
-      if (data.limitSwitchOn || data.currentPosition <= 0.0f) {
+      // Stop upward jog if top limit switch is hit, or (once homed) at the 0.0mm rest position
+      bool topHit = sensorMgr.readRawTopLimit();
+      bool atRest = motorMgr.isHomed() && data.currentPosition <= 0.0f;
+      if (topHit || atRest) {
         data.isUpPressed = false;
         motorMgr.stopMotor();
+        jogActive = false;
         display.markPageChanged(true);
       } else {
-        motorMgr.applyConfigMode(data.s_tmcMode, (float)data.manualSpeed, data.s_tmcThreshold);
-        motorMgr.stepMotorBurst(true, (float)data.manualSpeed, 50);
-        data.currentPosition = motorMgr.getCurrentPositionMM();
+        // Until the axis has been homed we do not know how close the switch is, so creep up slowly
+        float jogSpeed = (float)data.manualSpeed;
+        if (!motorMgr.isHomed()) jogSpeed = min(jogSpeed, MotorManager::UNHOMED_MAX_SPEED_MMPS);
+        motorMgr.applyConfigMode(data.s_tmcMode, jogSpeed, data.s_tmcThreshold);
+        motorMgr.runUp(jogSpeed);
+        jogActive = true;
         static unsigned long lastPosUpdate = 0;
         if (millis() - lastPosUpdate > 250) {
           lastPosUpdate = millis();
@@ -830,18 +1018,22 @@ void loop() {
       }
     } else if (data.isDownPressed) {
       // Stop downward jog if wax capacitive sensor triggers or soft limit is reached
-      if (data.capSensorOn || (data.s_softLimit > 0 && data.currentPosition >= (float)data.s_softLimit)) {
+      bool waxHit = sensorMgr.readRawCapSensor();
+      bool atLimit = (data.s_softLimit > 0 && data.currentPosition >= (float)data.s_softLimit);
+      if (waxHit || atLimit) {
         data.isDownPressed = false;
         motorMgr.stopMotor();
-        if (data.capSensorOn && data.currentPosition > 0.0f) {
+        jogActive = false;
+        // Only a homed position is a meaningful wax level
+        if (waxHit && motorMgr.isHomed() && data.currentPosition > 0.0f) {
           data.lastWaxLevelMM = data.currentPosition;
           prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
         }
         display.markPageChanged(true);
       } else {
         motorMgr.applyConfigMode(data.s_tmcMode, (float)data.manualSpeed, data.s_tmcThreshold);
-        motorMgr.stepMotorBurst(false, (float)data.manualSpeed, 50);
-        data.currentPosition = motorMgr.getCurrentPositionMM();
+        motorMgr.runDown((float)data.manualSpeed);
+        jogActive = true;
         static unsigned long lastPosUpdate = 0;
         if (millis() - lastPosUpdate > 250) {
           lastPosUpdate = millis();
@@ -850,13 +1042,12 @@ void loop() {
       }
     } else if (!data.isHomingActive && !data.isDipBotActive) {
       // When idle on Manual page, refresh telemetry at 10Hz if weight, position, or sensor states change
-      motorMgr.stopMotor();
       static unsigned long lastScaleRefresh = 0;
       static bool lastLimitDisplayed = false;
       static bool lastCapDisplayed = false;
       if (millis() - lastScaleRefresh >= 100) {
         lastScaleRefresh = millis();
-        if (abs(data.currentWeight - lastWtDisplayed) >= 0.1f || 
+        if (abs(data.currentWeight - lastWtDisplayed) >= 0.1f ||
             abs(data.currentPosition - lastPosDisplayed) >= 0.1f ||
             data.limitSwitchOn != lastLimitDisplayed ||
             data.capSensorOn != lastCapDisplayed) {
@@ -891,13 +1082,18 @@ void loop() {
   }
 
   // Periodic RTC clock update on top banner (redraws once per minute when minute rolls over)
-  m5::rtc_datetime_t dt;
-  if (M5.Rtc.getDateTime(&dt)) {
-    if (dt.time.minutes != lastMinute) {
-       lastMinute = dt.time.minutes;
-       if (data.currentPage < PAGE_ACTIVE_DIP && !data.showNumpad) {
-         display.markPageChanged(true);
-       }
+  // The RTC is read over I2C, so it is polled once a second rather than on every pass of the loop.
+  static unsigned long lastRtcPoll = 0;
+  if (millis() - lastRtcPoll >= 1000) {
+    lastRtcPoll = millis();
+    m5::rtc_datetime_t dt;
+    if (M5.Rtc.getDateTime(&dt)) {
+      if (dt.time.minutes != lastMinute) {
+         lastMinute = dt.time.minutes;
+         if (data.currentPage < PAGE_ACTIVE_DIP && !data.showNumpad) {
+           display.markPageChanged(true);
+         }
+      }
     }
   }
 
@@ -919,7 +1115,11 @@ void loop() {
       display.markPageChanged(true);
       display.renderCurrentPage(); // Render "STOP" button before entering blocking homing routine
 
-      motorMgr.performHoming((float)data.s_upSpeed, checkManualStop);
+      if (!motorMgr.performHoming((float)data.s_upSpeed, checkManualStop) && !data.justStoppedByTouch) {
+        Serial.println("Homing failed: top switch not found within travel.");
+        soundMgr.playAlertTune(data.s_alertTune, false);
+      }
+      motorMgr.applyConfigMode(data.s_tmcMode, (float)data.s_downSpeed, data.s_tmcThreshold);
 
       data.isHomingActive = false;
       display.markPageChanged(true);
@@ -932,9 +1132,17 @@ void loop() {
       display.markPageChanged(true);
       display.renderCurrentPage(); // Render "STOP" button before entering blocking Dip Bot routine
 
-      motorMgr.performDipBot((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_subDipTime, &data.lastWaxLevelMM, checkManualStop);
-      if (data.lastWaxLevelMM > 0.0f) {
-        prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
+      // Home first if needed so the soft limit and the recorded wax level are measured from the real top
+      if (motorMgr.isHomed() || motorMgr.performHoming((float)data.s_upSpeed, checkManualStop)) {
+        if (!motorMgr.performDipBot((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_subDipTime, &data.lastWaxLevelMM, checkManualStop)
+            && !data.justStoppedByTouch) {
+          Serial.println("Dip Bot failed: wax not found, wax sensor already ON, or top switch not found.");
+          soundMgr.playAlertTune(data.s_alertTune, false);
+        } else if (data.lastWaxLevelMM > 0.0f) {
+          prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
+        }
+      } else if (!data.justStoppedByTouch) {
+        soundMgr.playAlertTune(data.s_alertTune, false);
       }
 
       data.isDipBotActive = false;
@@ -955,7 +1163,14 @@ void loop() {
       display.markPageChanged(true);
       display.renderCurrentPage();
 
-      motorMgr.performMeltBases(targetDepth, (float)data.s_downSpeed, (float)data.s_upSpeed, data.s_baseMeltTime, checkManualStop);
+      if (motorMgr.isHomed() || motorMgr.performHoming((float)data.s_upSpeed, checkManualStop)) {
+        if (!motorMgr.performMeltBases(targetDepth, (float)data.s_downSpeed, (float)data.s_upSpeed, data.s_baseMeltTime, checkManualStop)
+            && !data.justStoppedByTouch) {
+          soundMgr.playAlertTune(data.s_alertTune, false);
+        }
+      } else if (!data.justStoppedByTouch) {
+        soundMgr.playAlertTune(data.s_alertTune, false);
+      }
 
       data.isMeltBasesActive = false;
       display.markPageChanged(true);
@@ -969,9 +1184,16 @@ void loop() {
       display.markPageChanged(true);
       display.renderCurrentPage();
 
-      motorMgr.performCleanJig((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_jigCleanTime, &data.lastWaxLevelMM, checkManualStop);
-      if (data.lastWaxLevelMM > 0.0f) {
-        prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
+      if (motorMgr.isHomed() || motorMgr.performHoming((float)data.s_upSpeed, checkManualStop)) {
+        if (!motorMgr.performCleanJig((float)data.s_downSpeed, (float)data.s_upSpeed, data.s_jigCleanTime, &data.lastWaxLevelMM, checkManualStop)
+            && !data.justStoppedByTouch) {
+          Serial.println("Clean Jig failed: wax not found, wax sensor already ON, or top switch not found.");
+          soundMgr.playAlertTune(data.s_alertTune, false);
+        } else if (data.lastWaxLevelMM > 0.0f) {
+          prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
+        }
+      } else if (!data.justStoppedByTouch) {
+        soundMgr.playAlertTune(data.s_alertTune, false);
       }
 
       data.isCleanJigActive = false;
@@ -1022,8 +1244,8 @@ void loop() {
       break;
 
     case UI_EVENT_SETTING_UPDATED:
-      // Persist modified parameter (s0..s22) to ESP32 NVS Preferences
-      if (data.activeSetting >= 0 && data.activeSetting <= 22) {
+      // Persist modified parameter (s0..s22 and s24) to ESP32 NVS Preferences (23 is the calibration weight, not stored)
+      if (data.activeSetting >= 0 && data.activeSetting <= 24 && data.activeSetting != 23) {
         char keyStr[8];
         snprintf(keyStr, sizeof(keyStr), "s%d", data.activeSetting);
         prefs.putInt(keyStr, display.getSettingValue(data.activeSetting));
@@ -1032,6 +1254,7 @@ void loop() {
       break;
 
     case UI_EVENT_MOTOR_ENABLE_TOGGLE:
+      // Releasing the coils also clears the homed flag: the next move that needs a position re-homes first
       motorMgr.setMotorEnable(data.isMotorEnabled);
       break;
 
@@ -1040,11 +1263,11 @@ void loop() {
       break;
 
     case UI_EVENT_BRIGHTNESS_CHANGED:
-      prefs.putInt("bright", data.s_brightness);
+      g_brightnessDirty = true; // Saved to flash once the finger lifts (see top of loop)
       break;
 
     case UI_EVENT_VOLUME_CHANGED:
-      prefs.putInt("vol", data.s_volume);
+      g_volumeDirty = true;     // Saved to flash once the finger lifts (see top of loop)
       soundMgr.setVolume(data.s_volume);
       if (data.s_volume > 0) {
         soundMgr.playBeep(1047, 60); // Short C6 feedback chirp at the newly selected volume
@@ -1067,12 +1290,16 @@ void loop() {
       break;
 
     case UI_EVENT_START_DIP:
-      Serial.println("UI Event: Starting dipping process (RAM auto-tare)...");
+      Serial.println("UI Event: Starting dipping process...");
       motorMgr.stopMotor();
-      scaleMgr.tare(10); // Auto-tare scale in RAM (10 fresh conversions) so current jig weight is zeroed out before Dip 1
-      data.currentWeight = 0.0f;
+      // Make sure the coils are powered, then let the state machine home (if needed), park at the top
+      // and auto-tare the scale before Dip 1.
+      data.isMotorEnabled = true;
+      motorMgr.setMotorEnable(true);
+      data.isUpPressed = false;
+      data.isDownPressed = false;
       phaseStartTime = millis();
-      currentDipPhase = DIP_PHASE_LOWERING;
+      currentDipPhase = DIP_PHASE_PREPARE;
       display.markPageChanged(true);
       soundMgr.playBeep(1800, 200);
       break;
