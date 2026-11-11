@@ -183,6 +183,8 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 10. **Sensor noise:** motion loops require 2–3 ms of continuous signal before reacting.
 11. **Smaller items:** NTP sync whenever Wi-Fi connects; RTC read once a second; brightness/volume saved on finger release; captive-portal redirect; pause buttons renamed RESUME / ABORT; Manual banner no longer overlaps.
 
+12. **Descent slow-down no longer depends on the measured wax level.** New **Full Tank Level** setting (`s25`, SETUP > Machine Setup > Wax Level), typed in or measured with the wax sensor (arm lowers at 15 mm/s; paper, card or a hand can stand in for the surface). The descent now always slows to Immerse Speed when the bottom of the candles is 15 mm above that height, on every dip. If it is not set, the last measured level is used; if neither is known, the descent runs at Immerse Speed throughout. `lastWaxLevelMM` is still measured every dip and used for lift-out, drip pause, Melt Bases, Clean Jig, the buoyancy allowance and the low-wax warning. Trade-off: as the wax level drops, each descent spends longer at Immerse Speed.
+
 ### 3.3 Items Requiring Physical Bench Validation
 1. **PC817 Voltage Verification Under Load:**
    * Before running the motor, confirm with a multimeter that GPIO 6 reads **3.3V at idle** and drops cleanly to **$\le 0.15\text{V}$** when touching the capacitive sensor face.
