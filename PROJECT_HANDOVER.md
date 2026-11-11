@@ -1,9 +1,11 @@
 # Bee Mine Candle Dipper — Project Handover & Engineering Specification
 
-**Document Version:** 1.0.0  
+**Document Version:** 2.0.0 (updated after the November 2026 code review; firmware changes compile but are not yet bench-tested)    
 **Target Platform:** M5Stack CoreS3 SE (ESP32-S3 Dual-Core LX7, 8MB PSRAM, 16MB Flash)  
 **Framework:** Arduino / ESP-IDF via PlatformIO (`-std=gnu++17`)  
-**Project Objective:** Automated precision candle dipping machine with closed-loop carriage motion, liquid wax surface detection, real-time load cell monitoring, and double-buffered touch UI.
+**Project Objective:** Automated precision candle dipping machine with ramped, homed carriage motion (open-loop stepper referenced to a top switch), liquid wax surface detection, real-time load cell monitoring, and double-buffered touch UI.
+
+> A fuller, plain-language description is in `docs/Bee Mine Candle Dipper - Project Explanation.docx`, and the operator manual is `USER_MANUAL.md` (Word copy in `docs/`).
 
 ---
 
@@ -23,7 +25,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Wax Level Proximity** | `PIN_WAX_LEVEL_SENS` | **GPIO 6** | `G6` | 3.3V CMOS (Active-LOW) | PC817 Optocoupler with 10kΩ pull-up to +3.3V |
 | **Top Carriage Limit** | `PIN_TOP_LIMIT_SW` | **GPIO 7** | `G7` | 3.3V CMOS (Active-HIGH) | Microswitch, Normally Closed (NC) to GND |
-| **Stepper STEP** | `PIN_MOTOR_STEP` | **GPIO 8** | `G8` | 3.3V Logic Pulse | TMC2209 Step pin (hardware timer pulse) |
+| **Stepper STEP** | `PIN_MOTOR_STEP` | **GPIO 8** | `G8` | 3.3V Logic Pulse | TMC2209 Step pin (FastAccelStepper hardware-timed pulses with acceleration ramps) |
 | **Stepper DIR** | `PIN_MOTOR_DIR` | **GPIO 9** | `G9` | 3.3V Logic Level | HIGH = UP (towards limit), LOW = DOWN |
 | **Stepper ENABLE** | `PIN_MOTOR_ENABLE` | **GPIO 17** | `G17` | 3.3V Active-LOW | LOW = Energized coils, HIGH = Driver sleep |
 | **Stepper UART** | `PIN_MOTOR_UART` | **GPIO 18** | `G18` | 3.3V Single-Wire Half-Duplex | `Serial2` @ 115200 baud with 1kΩ inline resistor |
@@ -129,7 +131,8 @@ All hardware signals are consolidated in `src/PinConfig.h`:
        ┌───────▼────────┐  ┌──────▼───────┐  ┌──────▼────────┐
        │  MotorManager  │  │ ScaleManager │  │ SensorManager │
        │  TMC2209 UART  │  │ HX711 24-bit │  │ Glitch-Filter │
-       │  4-Stage Home  │  │ EMA Filter   │  │ Limit & Wax   │
+       │  Ramped moves  │  │ EMA Filter   │  │ + Debounce    │
+       │  4-Stage Home  │  │ RAM Tare     │  │ Limit & Wax   │
        └────────────────┘  └──────────────┘  └───────────────┘
                                    │
                            ┌───────▼────────┐
@@ -143,14 +146,14 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 
 | File | Purpose | Verification Status |
 | :--- | :--- | :--- |
-| `src/PinConfig.h` | Master GPIO definitions and hardware register constants | ✅ Verified |
-| `src/SensorManager.h/.cpp` | 3-sample hardware debouncer for limit switch & PC817 optocoupler | ✅ Verified (Active-LOW default set) |
+| `src/PinConfig.h` | Master GPIO definitions (HX711 clock moved to GPIO 10) | ⚠️ Needs the SCK wire moved, then bench check |
+| `src/SensorManager.h/.cpp` | 3-sample glitch filter for limit switch & PC817 optocoupler, plus a 2–3 ms `Debounce` helper used by all motion loops | ⚠️ Compiles; debounce not yet bench-tested |
 | `src/MotorManager.h/.cpp` | TMC2209 UART driver, StealthChop2 switching, ramped step generation (FastAccelStepper), 4-stage homing & dipping | ⚠️ Compiles; ramped motion not yet bench-tested |
-| `src/ScaleManager.h/.cpp` | Non-blocking 10Hz HX711 bit-bang reader, EMA vibration filter, NVS tare | ✅ Verified |
-| `src/DisplayManager.h/.cpp`| Double-buffered M5Canvas UI engine, touch hit-testing & themes | ✅ Verified |
-| `src/main.cpp` | State machine router, dipping cycle coordinator, and captive portal | ✅ Verified |
-| `platformio.ini` | PlatformIO configuration for CoreS3 SE (`M5Unified`, C++17) | ✅ Verified |
-| `src/App.tsx` | Web companion, CoreS3 simulator, and 1-click Antigravity ZIP exporter | ✅ Verified & Compiling |
+| `src/ScaleManager.h/.cpp` | Non-blocking 10Hz HX711 bit-bang reader, EMA vibration filter, RAM tare, NVS calibration factor | ⚠️ Unchanged code; could not have worked on GPIO 13 once sound was added |
+| `src/DisplayManager.h/.cpp`| Double-buffered M5Canvas UI engine, touch hit-testing & themes, full-screen numpad, fault and Max Dips screens | ⚠️ Compiles; new layouts not yet seen on the device |
+| `src/main.cpp` | Dipping state machine (auto-home, buoyancy-aware collision, fault alerts, Max Dips), latching jog, captive portal, non-blocking NTP | ⚠️ Compiles; not yet bench-tested |
+| `platformio.ini` | PlatformIO configuration for CoreS3 SE (pinned `espressif32`, `M5Unified`, `FastAccelStepper`, C++17) | ✅ Builds |
+| `src/App.tsx` | Web companion: ZIP exporter, file viewer and an approximate CoreS3 simulator (does not yet mirror the new numpad, fault screens or Max Dips) | ⚠️ Text updated; simulator only partly in step with firmware |
 
 ---
 
@@ -167,7 +170,20 @@ All hardware signals are consolidated in `src/PinConfig.h`:
    * *Cause:* `pinMode(PIN_WAX_LEVEL_SENS, INPUT_PULLUP)` placed the internal 45kΩ pull-up in parallel with external 10kΩ resistors.
    * *Resolution:* Changed to `pinMode(PIN_WAX_LEVEL_SENS, INPUT)` (pure high-impedance).
 
-### 3.2 Items Requiring Physical Bench Validation in Antigravity
+### 3.2 Resolved in the November 2026 Code Review (not yet bench-tested)
+1. **HX711 clock on GPIO 13 clashed with the speaker.** GPIO 13 is the CoreS3 I2S data line to the speaker amplifier, so the scale stopped reading as soon as `SoundManager` started. Clock moved to **GPIO 10**; the wire must be moved too.
+2. **No acceleration.** Moves started and stopped at full speed from `delayMicroseconds()` loops that were also interrupted by touch polling and redraws. `MotorManager` now uses **FastAccelStepper** with ramps (`ACCEL_MM_S2`, 300 mm/s²) and slows for the last 12 mm before the top switch.
+3. **Pause screen made the carriage oscillate.** The retract condition was true again after every retract. It now retracts once per pause.
+4. **False collisions from buoyancy.** Candles immersed in molten wax weigh less. The collision check remains active for the whole stroke but allows for the wax weight already on the candles once they are immersed.
+5. **Silent timeouts.** 35 s timeouts carried on as if the wax or the top had been reached. Moves are now limited by distance and end in a fault screen (`Top switch not found!`, `Homing failed: check top switch`).
+6. **Position trusted without homing.** The firmware now tracks a homed flag and homes automatically before a dip, Dip Bot, Melt Bases or Clean Jig, and again after the coils have been released.
+7. **Wax sensor already triggered at the top** is now reported (`Wax sensor ON at top: clean it`) instead of "holding" in mid-air.
+8. **Weight mode could run forever** with a faulty scale. New `Max Dips` setting (`s24`, default 60).
+9. **Numpad:** OK with nothing typed no longer saves 0 (which could switch off the Soft Limit). The numpad is now full-screen with larger keys.
+10. **Sensor noise:** motion loops require 2–3 ms of continuous signal before reacting.
+11. **Smaller items:** NTP sync whenever Wi-Fi connects; RTC read once a second; brightness/volume saved on finger release; captive-portal redirect; pause buttons renamed RESUME / ABORT; Manual banner no longer overlaps.
+
+### 3.3 Items Requiring Physical Bench Validation
 1. **PC817 Voltage Verification Under Load:**
    * Before running the motor, confirm with a multimeter that GPIO 6 reads **3.3V at idle** and drops cleanly to **$\le 0.15\text{V}$** when touching the capacitive sensor face.
 2. **Top Limit Backoff Distance Tuning:**
@@ -203,8 +219,9 @@ pio device monitor -b 115200
 - Click the top limit switch: ensure serial monitor logs `Top Limit: HIT`.
 
 ### Step 3: Homing Calibration Test
-- Place the carriage in the middle of travel.
-- Trigger **Home** from the CoreS3 screen or serial terminal.
+- **First move the HX711 clock wire from GPIO 13 to GPIO 10** and confirm the weight on the MANUAL screen responds, then calibrate.
+- Place the carriage in the middle of travel, with no jig fitted.
+- Trigger **HOME** from the MANUAL screen.
 - Verify:
   - Fast travel upwards.
   - Limit hit detection.
@@ -214,4 +231,5 @@ pio device monitor -b 115200
 
 ### Step 4: First Automated Dipping Cycle
 - Verify parameters on CoreS3 display (firmware defaults: Down speed 50 mm/s, Immerse speed 25 mm/s, Extract speed 20 mm/s, Up speed 60 mm/s, 1st dip hold 10 s, later dips 4 s, Cool 15 s, Driver Mode SpreadCycle). For a first run it is sensible to halve the speeds.
-- Initiate test dip: verify carriage lowers, stops instantly on wax touch, dwells, raises to top limit, and cools.
+- Run **DIP BOT** first with an empty jig, then a short Dips-mode batch: verify the carriage homes if needed, zeroes the scale, lowers, stops on wax touch, dwells, raises to the top, weighs and cools.
+- During the run, touch the screen and check the carriage retracts once and RESUME / ABORT behave as labelled.
