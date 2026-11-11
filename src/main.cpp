@@ -95,6 +95,7 @@ bool checkManualStop() {
       data.isDipBotActive = false;
       data.isMeltBasesActive = false;
       data.isCleanJigActive = false;
+      data.isWaxMeasureActive = false;
       if (data.currentPage == PAGE_ACTIVE_DIP) {
         data.currentPage = PAGE_STOP_CONFIRM;
         data.stopConfirmEnterTime = millis();
@@ -281,6 +282,7 @@ void setup() {
   data.s_dripOffset    = prefs.getInt("s21", 15);
   data.s_dripTime      = prefs.getInt("s22", 3);
   data.s_maxDips       = prefs.getInt("s24", 60);
+  data.s_fullLevelMM   = prefs.getInt("s25", 0);
   data.meltBasesEnabled = prefs.getBool("mb_en", false);
   data.lastWaxLevelMM  = prefs.getFloat("wax_lvl", 0.0f);
   data.s_brightness    = prefs.getInt("bright", 50);
@@ -384,6 +386,26 @@ enum DipPhase {
 static DipPhase currentDipPhase = DIP_PHASE_IDLE;
 static unsigned long phaseStartTime = 0;
 static unsigned long holdDurationMs = 0;
+// Wax surface depth (mm below top rest) that decides where the DESCENT slows down.
+// The slow-down always starts 15 mm before the bottom of the candles reaches the Full Tank Level, no matter how far the
+// wax has dropped, so every dip enters the wax the same way. If the Full Tank Level is not set, the last measured wax
+// level is used instead. If neither is known, the descent runs at Immerse Speed the whole way (safe but slow).
+// The measured level (lastWaxLevelMM) is still recorded on every dip: the lift-out, drip pause, Melt Bases, Clean Jig
+// and the low-wax warning all use it.
+static float approachWaxLevelMM(const DisplayData& d) {
+  float jig = (float)d.s_jigLength;
+  if ((float)d.s_fullLevelMM > jig) return (float)d.s_fullLevelMM;
+  return (d.lastWaxLevelMM > jig) ? d.lastWaxLevelMM : 0.0f;
+}
+
+// Wax surface depth used while lifting out: the depth just measured on the way down, or the Full Tank Level if
+// that was not usable.
+static float extractWaxLevelMM(const DisplayData& d) {
+  float jig = (float)d.s_jigLength;
+  if (d.lastWaxLevelMM > jig) return d.lastWaxLevelMM;
+  return ((float)d.s_fullLevelMM > jig) ? (float)d.s_fullLevelMM : 0.0f;
+}
+
 static bool pauseRetractDone = false; // True once the carriage has been dealt with for the current pause / alert screen
 
 // Computes the cooling rest time (in seconds) for the current dip using a linear curve
@@ -554,10 +576,17 @@ void processActiveDipping() {
       float immerseSpeed  = (data.s_immerseSpeed > 0) ? (float)data.s_immerseSpeed : fastDownSpeed;
 
       // Z position where the bottom of the candles touches the wax surface
-      bool waxKnown = (data.lastWaxLevelMM > (float)data.s_jigLength);
-      float baseTouchMM = waxKnown ? (data.lastWaxLevelMM - (float)data.s_jigLength) : 0.0f;
-      // Start slowing down 15mm before the candle base touches the wax
+      float approachLevelMM = approachWaxLevelMM(data);
+      bool waxKnown = (approachLevelMM > 0.0f);
+      float baseTouchMM = waxKnown ? (approachLevelMM - (float)data.s_jigLength) : 0.0f;
+      // Start slowing down 15mm before the candle base reaches the tank height (Full Tank Level)
       float slowStartMM = waxKnown ? max(0.0f, baseTouchMM - 15.0f) : 0.0f;
+
+      // The buoyancy allowance below needs the depth where the candles REALLY enter the wax, which is the measured
+      // level rather than the (higher) tank height used for the slow-down
+      float buoyLevelMM = extractWaxLevelMM(data);
+      bool buoyKnown = (buoyLevelMM > 0.0f);
+      float buoyBaseTouchMM = buoyKnown ? (buoyLevelMM - (float)data.s_jigLength) : 0.0f;
 
       // Furthest the carriage may travel looking for wax (Soft Limit, or the hard cap if that is switched off)
       float limitMM = motorMgr.getMaxTravelMM();
@@ -613,8 +642,8 @@ void processActiveDipping() {
             float buoyancyAllowance = 0.0f;
             if (baselineWeight > 0.0f) {
               float immersedFraction = 1.0f;
-              if (waxKnown) {
-                immersedFraction = constrain((pos - baseTouchMM) / (float)max(1, data.s_jigLength), 0.0f, 1.0f);
+              if (buoyKnown) {
+                immersedFraction = constrain((pos - buoyBaseTouchMM) / (float)max(1, data.s_jigLength), 0.0f, 1.0f);
               }
               buoyancyAllowance = baselineWeight * immersedFraction;
             }
@@ -712,12 +741,13 @@ void processActiveDipping() {
       float extractSpeed = (data.s_extractSpeed > 0) ? (float)data.s_extractSpeed : fastUpSpeed;
 
       // Z position where the bottom of the candle jig clears the wax surface
-      bool waxKnown = (data.lastWaxLevelMM > (float)data.s_jigLength);
-      float baseClearMM = waxKnown ? max(0.0f, data.lastWaxLevelMM - (float)data.s_jigLength) : 0.0f;
+      float extractLevelMM = extractWaxLevelMM(data);
+      bool waxKnown = (extractLevelMM > 0.0f);
+      float baseClearMM = waxKnown ? max(0.0f, extractLevelMM - (float)data.s_jigLength) : 0.0f;
 
       // Drip-Off Pause position relative to wax surface (+s_dripOffset = above wax, -s_dripOffset = below wax)
       bool dripEnabled = (waxKnown && data.s_dripOffset != 0 && data.s_dripTime > 0);
-      float dripPauseMM = dripEnabled ? constrain(baseClearMM - (float)data.s_dripOffset, 0.0f, data.lastWaxLevelMM) : -1.0f;
+      float dripPauseMM = dripEnabled ? constrain(baseClearMM - (float)data.s_dripOffset, 0.0f, extractLevelMM) : -1.0f;
       bool dripPauseDone = !dripEnabled;
 
       float startPos = motorMgr.getCurrentPositionMM();
@@ -1200,6 +1230,38 @@ void loop() {
       display.markPageChanged(true);
       break;
 
+    case UI_EVENT_WAX_MEASURE: {
+      // Lower slowly until the wax sensor triggers (wax surface, or paper / a hand held at the full-tank height),
+      // store that depth as the Full Tank Level, then return to the top. A fixed slow speed gives time to stop it.
+      const float WAX_MEASURE_SPEED_MMPS = 15.0f;
+      Serial.println("Measuring Full Tank Level...");
+      markActionStarted();
+      data.isWaxMeasureActive = true;
+      display.markPageChanged(true);
+      display.renderCurrentPage();
+
+      float measuredMM = 0.0f;
+      if (motorMgr.isHomed() || motorMgr.performHoming((float)data.s_upSpeed, checkManualStop)) {
+        if (motorMgr.performDipBot(WAX_MEASURE_SPEED_MMPS, (float)data.s_upSpeed, 0, &measuredMM, checkManualStop)
+            && measuredMM > 0.0f) {
+          data.s_fullLevelMM = (int)roundf(measuredMM);
+          prefs.putInt("s25", data.s_fullLevelMM);
+          Serial.printf("Full Tank Level set to %d mm\n", data.s_fullLevelMM);
+          soundMgr.playBeep(1500, 200);
+        } else if (!data.justStoppedByTouch) {
+          // Nothing found before the Soft Limit, the sensor was already triggered, or the top switch was lost
+          soundMgr.playAlertTune(data.s_alertTune, false);
+        }
+      } else if (!data.justStoppedByTouch) {
+        soundMgr.playAlertTune(data.s_alertTune, false);
+      }
+      motorMgr.applyConfigMode(data.s_tmcMode, (float)data.s_downSpeed, data.s_tmcThreshold);
+
+      data.isWaxMeasureActive = false;
+      display.markPageChanged(true);
+      break;
+    }
+
     case UI_EVENT_MELT_TOGGLED:
       prefs.putBool("mb_en", data.meltBasesEnabled);
       soundMgr.playBeep(data.meltBasesEnabled ? 1400 : 900, 80);
@@ -1212,6 +1274,7 @@ void loop() {
       data.isDipBotActive = false;
       data.isMeltBasesActive = false;
       data.isCleanJigActive = false;
+      data.isWaxMeasureActive = false;
       currentDipPhase = DIP_PHASE_IDLE;
       display.markPageChanged(true);
       break;
@@ -1244,8 +1307,8 @@ void loop() {
       break;
 
     case UI_EVENT_SETTING_UPDATED:
-      // Persist modified parameter (s0..s22 and s24) to ESP32 NVS Preferences (23 is the calibration weight, not stored)
-      if (data.activeSetting >= 0 && data.activeSetting <= 24 && data.activeSetting != 23) {
+      // Persist modified parameter (s0..s22, s24 and s25) to ESP32 NVS Preferences (23 is the calibration weight, not stored)
+      if (data.activeSetting >= 0 && data.activeSetting <= 25 && data.activeSetting != 23) {
         char keyStr[8];
         snprintf(keyStr, sizeof(keyStr), "s%d", data.activeSetting);
         prefs.putInt(keyStr, display.getSettingValue(data.activeSetting));

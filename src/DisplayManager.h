@@ -18,6 +18,7 @@ enum AppState {
   PAGE_SETTING_COOLING, // Recipe Sub-page (3 cards): Default Cool (s), 1st Cool (s), Last Cool (s)
   PAGE_SETTING_SPEEDS,  // Recipe Sub-page (3-card scroll): Up speed, Down speed, Immerse speed, Extract speed (mm/s)
   PAGE_SETTING_JIG,     // Machine Sub-page (3-card scroll): Jig Below Sens (mm), Base Melt Time (s), Clean Jig Time (s), Soft Limit (mm)
+  PAGE_WAX_LEVEL,       // Machine Sub-page: Full Tank Level - short explanation, ENTER BY HAND (numpad) or MEASURE (lower to sensor)
   PAGE_SETTING_MOTOR,   // Machine Sub-page (3 cards): TMC2209 Driver Mode, Hybrid speed threshold, Motor coil power toggle
   PAGE_SETTING_SENSOR,  // Machine Sub-page (3 cards): Collision limit (g), Weight Dwell (ms), Load Cell Calibration Wizard
   PAGE_SCALE_CAL,       // Machine Sub-page: Guided 2-step Load Cell Calibration Wizard (1. Zero Unloaded, 2. Known Weight)
@@ -52,6 +53,7 @@ enum UiEvent {
   UI_EVENT_MANUAL_DIP_BOT,      // User tapped "DIP BOT" on Manual Control screen
   UI_EVENT_TOOL_MELT_BASES,     // User tapped "MELT CANDLE BASES" on the Tools screen
   UI_EVENT_TOOL_CLEAN_JIG,      // User tapped "CLEAN WHOLE JIG" on the Tools screen
+  UI_EVENT_WAX_MEASURE,         // User tapped "MEASURE" on the Wax Level page (lower slowly until the wax sensor triggers)
   UI_EVENT_MANUAL_STOP,         // User tapped "STOP" during Homing, Dip Bot, Melt Bases, or Clean Jig
   UI_EVENT_MOTOR_ENABLE_TOGGLE  // User toggled Motor Power (ENABLED / DISABLED) on Motor Settings screen
 };
@@ -73,6 +75,7 @@ struct DisplayData {
   bool isDipBotActive = false;    // True while single-cycle Dip Bot sequence is running
   bool isMeltBasesActive = false; // True while standalone Melt Candle Bases tool is running
   bool isCleanJigActive = false;  // True while standalone Clean Whole Jig tool is running
+  bool isWaxMeasureActive = false;// True while the Wax Level page is measuring the full-tank level
   bool justStoppedByTouch = false;// Prevents touch-to-stop release event from re-triggering buttons
   int manualSpeed = 50;           // Manual jog speed in mm/s (adjustable via - / + buttons from 5 to 100)
   float currentPosition = 0.0f;   // Current Z-axis carriage position in mm (0 = top home)
@@ -105,6 +108,7 @@ struct DisplayData {
   int s_extractSpeed = 20;   // s20: Extraction speed (mm/s) while lifting candles out of wax until base clears (0 = s_upSpeed)
   int s_dripOffset = 15;     // s21: Drip-off pause position relative to wax surface in mm (+ = above wax, - = below, 0 = off)
   int s_dripTime = 3;        // s22: Drip-off pause duration in seconds (0 = disabled)
+  int s_fullLevelMM = 0;     // s25: Wax surface depth (mm below top rest) when the tank is full. 0 = not set. Used to approach the wax correctly before any level has been measured
   int s_maxDips = 60;        // s24: Safety limit - Weight mode stops with an alert after this many dips even if the target weight is not reached
   bool meltBasesEnabled = false; // Checkbox option: if true, melts candle bases as the final stage of dipping
   bool isMotorEnabled = true; // Motor power enable/disable toggle
@@ -214,6 +218,7 @@ private:
   void drawSettingsHub();
   void drawRecipeHub();
   void drawMachineHub();
+  void drawWaxLevelPage();
   void drawMotorPage();
   void drawSensorAndScalePage();
   void drawScaleCalPage();

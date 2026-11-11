@@ -2,7 +2,7 @@
 
 // Parameter metadata arrays (indices 0..22 and 24 map to preferences keys "s0".."s22" and "s24";
 // index 23 is the Scale Calibration weight, which is not stored)
-static const char* settingNames[25] = {
+static const char* settingNames[26] = {
   "Slim Weight", "Std Weight", "Slim Dips", "Std Dips",
   "1st Dip Time", "+ Dips Time", "Up Speed", "Down Speed",
   "Col. Limit", "Soft Limit", "Weight Dwell", "Default Cool",
@@ -12,11 +12,12 @@ static const char* settingNames[25] = {
   "Immerse Speed", "Extract Speed",
   "Drip Offset", "Drip Time",
   "Known Weight (g)",
-  "Max Dips"
+  "Max Dips",
+  "Full Tank Level"
 };
 
 // Helpful 1-line subtitle hints displayed inside each 50px parameter card
-static const char* settingHints[25] = {
+static const char* settingHints[26] = {
   "Target wax weight (Slim)",    // s0
   "Target wax weight (Std)",     // s1
   "Total dip cycles (Slim)",     // s2
@@ -41,10 +42,11 @@ static const char* settingHints[25] = {
   "+ above / - in wax (0=Off)",  // s21
   "Drip pause hold (0=Off)",     // s22
   "Calibration test mass",       // s23
-  "Weight mode safety stop"      // s24
+  "Weight mode safety stop",     // s24
+  "Wax depth when tank is full"  // s25
 };
 
-static const char* settingUnits[25] = {
+static const char* settingUnits[26] = {
   "g", "g", "dips", "dips",
   "s", "s", "mm/s", "mm/s",
   "g", "mm", "ms", "s",
@@ -54,7 +56,8 @@ static const char* settingUnits[25] = {
   "mm/s", "mm/s",
   "mm", "s",
   "g",
-  "dips"
+  "dips",
+  "mm"
 };
 static const char* themeNames[3] = { "Ind. Slate", "Bee Mine", "Midnight" };
 
@@ -156,6 +159,7 @@ int DisplayManager::getSettingValue(int index) const {
      case 22: return data.s_dripTime;
      case 23: return data.calibrationRefGrams;
      case 24: return data.s_maxDips;
+     case 25: return data.s_fullLevelMM;
   }
   return 0;
 }
@@ -188,6 +192,7 @@ void DisplayManager::setSettingValue(int index, int val) {
      case 22: data.s_dripTime = abs(val); break;                        // 0 = disabled
      case 23: data.calibrationRefGrams = max(1, abs(val)); break;
      case 24: data.s_maxDips = constrain(abs(val), 1, 999); break;
+     case 25: data.s_fullLevelMM = constrain(abs(val), 0, 1500); break; // 0 = not set
   }
 }
 
@@ -367,6 +372,7 @@ void DisplayManager::drawTopBanner() {
                                   data.currentPage == PAGE_SETTING_COOLING ||
                                   data.currentPage == PAGE_SETTING_JIG ||
                                   data.currentPage == PAGE_SETTING_SENSOR ||
+                                  data.currentPage == PAGE_WAX_LEVEL ||
                                   data.currentPage == PAGE_SETTING_MOTOR ||
                                   data.currentPage == PAGE_SETTING_SCREEN ||
                                   data.currentPage == PAGE_SETTING_SOUND)) {
@@ -378,6 +384,7 @@ void DisplayManager::drawTopBanner() {
       else if (data.currentPage == PAGE_SETTING_TIMING)  hdr = "RECIPE: DIP & DRIP";
       else if (data.currentPage == PAGE_SETTING_COOLING) hdr = "RECIPE: COOLING";
       else if (data.currentPage == PAGE_SETTING_JIG)     hdr = "MACHINE: JIG & LIMIT";
+      else if (data.currentPage == PAGE_WAX_LEVEL)       hdr = "MACHINE: WAX LEVEL";
       else if (data.currentPage == PAGE_SETTING_SENSOR)  hdr = "MACHINE: SCALE & COL";
       else if (data.currentPage == PAGE_SETTING_MOTOR)   hdr = "MACHINE: MOTOR";
       else if (data.currentPage == PAGE_SETTING_SCREEN)  hdr = "MACHINE: SCREEN";
@@ -693,16 +700,18 @@ void DisplayManager::drawMachineHub() {
   canvas.fillScreen(c_bg);
   drawTopBanner(); drawBottomBanner();
 
-  static const char* machTitles[6] = {
+  static const char* machTitles[7] = {
     "Jig & Soft Limit",
+    "Wax Level",
     "Scale & Collision",
     "Stepper Motor",
     "Screen & Theme",
     "Sound & Tunes",
     "Wi-Fi Portal"
   };
-  static const char* machHints[6] = {
+  static const char* machHints[7] = {
     "Jig length, Melt times, Max Z",
+    "Where the slow descent starts",
     "Load Cell Cal & Col. Limit",
     "TMC2209 mode & Coil power",
     "Brightness & Color Palette",
@@ -710,7 +719,7 @@ void DisplayManager::drawMachineHub() {
     "Broadcast BeeMine-Setup AP"
   };
 
-  int total = 6;
+  int total = 7;
   int maxOff = ((total - 1) / 3) * 3;
   data.scrollOffset = constrain(data.scrollOffset, 0, maxOff);
 
@@ -723,6 +732,45 @@ void DisplayManager::drawMachineHub() {
                      cardBg, c_btnTxt, c_outline, TFT_WHITE);
   }
   drawRightScrollBar(total);
+}
+
+// Draws the Wax Level page (PAGE_WAX_LEVEL): a short explanation, the current Full Tank Level, and two actions:
+// - ENTER BY HAND: opens the numpad for the depth in mm
+// - MEASURE WITH SENSOR: lowers slowly until the wax sensor triggers (wax surface, or a sheet of paper / a hand held
+//   at the full-tank height) and stores that depth. The button becomes STOP while the arm is moving.
+void DisplayManager::drawWaxLevelPage() {
+  canvas.fillScreen(c_bg);
+  drawTopBanner(); drawBottomBanner();
+
+  canvas.setTextDatum(middle_left);
+  canvas.setTextColor(TFT_WHITE, c_bg);
+  canvas.setTextSize(1.4);
+  canvas.drawString("Wax depth when the tank is full.", 10, 51);
+  canvas.drawString("Candles slow down 15 mm above it", 10, 67);
+  canvas.drawString("and enter the wax gently.", 10, 83);
+
+  // Current value card (y = 94..122)
+  canvas.fillRoundRect(10, 94, 300, 28, 8, c_outline);
+  canvas.setTextSize(1.5);
+  canvas.setTextColor(TFT_WHITE, c_outline);
+  canvas.setTextDatum(middle_left);
+  canvas.drawString("Full tank level:", 20, 108);
+  canvas.setTextDatum(middle_right);
+  char lvl[24];
+  if (data.s_fullLevelMM > 0) snprintf(lvl, sizeof(lvl), "%d mm", data.s_fullLevelMM);
+  else                        snprintf(lvl, sizeof(lvl), "NOT SET");
+  canvas.setTextColor(data.s_fullLevelMM > 0 ? c_active : TFT_ORANGE, c_outline);
+  canvas.drawString(lvl, 300, 108);
+
+  // Action buttons (y = 128..162 and 166..200)
+  canvas.setTextSize(1.6);
+  drawButton(10, 128, 300, 34, "ENTER BY HAND", c_btn1, c_btnTxt);
+  if (data.isWaxMeasureActive) {
+    drawButton(10, 166, 300, 34, "STOP", canvas.color565(255, 0, 0), TFT_WHITE);
+  } else {
+    drawButton(10, 166, 300, 34, "MEASURE WITH SENSOR", c_active, TFT_BLACK);
+  }
+  canvas.setTextSize(2.0);
 }
 
 // Draws the Motor Settings sub-page (3 full-width 50px cards with hints: Driver Mode, Hybrid Speed, Motor Power)
@@ -979,7 +1027,7 @@ void DisplayManager::drawNumpad() {
   canvas.fillScreen(c_banner);
 
   // Title: setting name and unit
-  int labelIdx = constrain(data.activeSetting, 0, 24);
+  int labelIdx = constrain(data.activeSetting, 0, 25);
   char title[48];
   if (settingUnits[labelIdx][0] != '\0' && labelIdx != 23) {
     snprintf(title, sizeof(title), "%s (%s)", settingNames[labelIdx], settingUnits[labelIdx]);
@@ -1228,8 +1276,11 @@ void DisplayManager::renderCurrentPage() {
     case PAGE_SETTING_JIG:
       if (data.showNumpad) drawNumpad(); else drawSettingsList(jigSettingIndices, 4);
       break;
+    case PAGE_WAX_LEVEL:
+      if (data.showNumpad) drawNumpad(); else drawWaxLevelPage();
+      break;
     case PAGE_SETTING_SENSOR: 
-      if (data.showNumpad) drawNumpad(); else drawSensorAndScalePage(); 
+      if (data.showNumpad) drawNumpad(); else drawSensorAndScalePage();  
       break;
     case PAGE_SCALE_CAL:
       if (data.showNumpad) drawNumpad(); else drawScaleCalPage();
@@ -1493,6 +1544,7 @@ UiEvent DisplayManager::updateTouch() {
                    data.currentPage == PAGE_SETTING_COOLING) {
           setCurrentPage(PAGE_RECIPE_HUB);
         } else if (data.currentPage == PAGE_SETTING_JIG ||
+                   data.currentPage == PAGE_WAX_LEVEL ||
                    data.currentPage == PAGE_SETTING_SENSOR ||
                    data.currentPage == PAGE_SETTING_MOTOR ||
                    data.currentPage == PAGE_SETTING_SCREEN ||
@@ -1549,6 +1601,25 @@ UiEvent DisplayManager::updateTouch() {
           }
         }
       }
+      // 7b. Wax Level page (Full Tank Level: enter by hand, or measure with the wax sensor)
+      else if (data.currentPage == PAGE_WAX_LEVEL) {
+        if (data.justStoppedByTouch) {
+          data.justStoppedByTouch = false;
+          data.pageChanged = true;
+          return UI_EVENT_NONE;
+        }
+        if (tx >= 10 && tx <= 310) {
+          if (ty >= 126 && ty <= 164) { // ENTER BY HAND
+            data.activeSetting = 25;
+            data.numpadStr = "";
+            data.showNumpad = true;
+            data.pageChanged = true;
+          } else if (ty >= 165 && ty <= 202) { // MEASURE WITH SENSOR / STOP
+            data.pageChanged = true;
+            eventTriggered = data.isWaxMeasureActive ? UI_EVENT_MANUAL_STOP : UI_EVENT_WAX_MEASURE;
+          }
+        }
+      }
       // 8. Top-Level SETUP Hub (2 Full-Width Bucket Cards: 1. Recipe Params vs 2. Machine Setup)
       else if (data.currentPage == PAGE_SETTINGS_HUB) {
         if (tx >= 10 && tx <= 310) {
@@ -1578,16 +1649,17 @@ UiEvent DisplayManager::updateTouch() {
       else if (data.currentPage == PAGE_MACHINE_HUB) {
         if (ty <= 36 && tx >= 200) { // Top-right "< RECIPE" quick switch
           setCurrentPage(PAGE_RECIPE_HUB);
-        } else if (!handleRightScrollTouch(tx, ty, 6, data) && tx <= 264) {
+        } else if (!handleRightScrollTouch(tx, ty, 7, data) && tx <= 264) {
           int slot = getCardSlotFromY(ty);
           int idx = data.scrollOffset + slot;
-          if (slot >= 0 && idx < 6) {
+          if (slot >= 0 && idx < 7) {
             if (idx == 0) setCurrentPage(PAGE_SETTING_JIG);
-            else if (idx == 1) setCurrentPage(PAGE_SETTING_SENSOR);
-            else if (idx == 2) setCurrentPage(PAGE_SETTING_MOTOR);
-            else if (idx == 3) setCurrentPage(PAGE_SETTING_SCREEN);
-            else if (idx == 4) setCurrentPage(PAGE_SETTING_SOUND);
-            else if (idx == 5) {
+            else if (idx == 1) setCurrentPage(PAGE_WAX_LEVEL);
+            else if (idx == 2) setCurrentPage(PAGE_SETTING_SENSOR);
+            else if (idx == 3) setCurrentPage(PAGE_SETTING_MOTOR);
+            else if (idx == 4) setCurrentPage(PAGE_SETTING_SCREEN);
+            else if (idx == 5) setCurrentPage(PAGE_SETTING_SOUND);
+            else if (idx == 6) {
               setCurrentPage(PAGE_WIFI_PORTAL);
               eventTriggered = UI_EVENT_START_WIFI_PORTAL;
             }
