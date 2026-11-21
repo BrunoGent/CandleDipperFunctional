@@ -11,7 +11,7 @@ const float MotorManager::ACCEL_MM_S2 = 300.0f;
 // Upward moves slow down close to the top so the switch is always met gently
 const float MotorManager::TOP_APPROACH_ZONE_MM = 12.0f;
 const float MotorManager::TOP_APPROACH_SPEED_MMPS = 10.0f;
-const float MotorManager::UNHOMED_MAX_SPEED_MMPS = 20.0f;
+const float MotorManager::UNHOMED_MAX_SPEED_MMPS = 25.0f;
 const float MotorManager::ABS_MAX_TRAVEL_MM = 1000.0f;
 
 // The top switch / wax sensor must read active continuously for this long before a move reacts to it
@@ -208,6 +208,11 @@ void MotorManager::runUp(float speedMMps) {
   // Meet the top switch gently once we know where it is
   if (_homed && getCurrentPositionMM() < TOP_APPROACH_ZONE_MM && speedMMps > TOP_APPROACH_SPEED_MMPS) {
     speedMMps = TOP_APPROACH_SPEED_MMPS;
+  }
+  // Until the switch has been found we cannot slow down for it, so every upward move (homing seek, retract after a
+  // fault, manual jog) is capped. Otherwise the carriage would hit the switch at full Up Speed and stop abruptly.
+  if (!_homed && speedMMps > UNHOMED_MAX_SPEED_MMPS) {
+    speedMMps = UNHOMED_MAX_SPEED_MMPS;
   }
   startRun(-1, speedMMps);
 }

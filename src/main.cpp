@@ -386,16 +386,22 @@ enum DipPhase {
 static DipPhase currentDipPhase = DIP_PHASE_IDLE;
 static unsigned long phaseStartTime = 0;
 static unsigned long holdDurationMs = 0;
+static bool g_waxFoundThisRun = false; // True once the wax surface has been touched during the current run
+
 // Wax surface depth (mm below top rest) that decides where the DESCENT slows down.
-// The slow-down always starts 15 mm before the bottom of the candles reaches the Full Tank Level, no matter how far the
-// wax has dropped, so every dip enters the wax the same way. If the Full Tank Level is not set, the last measured wax
-// level is used instead. If neither is known, the descent runs at Immerse Speed the whole way (safe but slow).
-// The measured level (lastWaxLevelMM) is still recorded on every dip: the lift-out, drip pause, Melt Bases, Clean Jig
-// and the low-wax warning all use it.
+// - First dip of a run: nothing has been measured yet, and the level saved from the last session may be out of date
+//   (the tank may have been topped up since), so the SHALLOWER of the Full Tank Level and the saved level is used.
+//   The real surface cannot be above the full-tank level, so this can only make the machine slow down early.
+// - Later dips: the tank is not topped up during a run, so the level measured on the previous dip is used and the
+//   arm travels quickly until just before the candles reach the wax.
+// Returns 0 if no usable level is known: the descent then runs at Immerse Speed the whole way (safe but slow).
 static float approachWaxLevelMM(const DisplayData& d) {
   float jig = (float)d.s_jigLength;
-  if ((float)d.s_fullLevelMM > jig) return (float)d.s_fullLevelMM;
-  return (d.lastWaxLevelMM > jig) ? d.lastWaxLevelMM : 0.0f;
+  float measured = (d.lastWaxLevelMM > jig) ? d.lastWaxLevelMM : 0.0f;
+  float full = ((float)d.s_fullLevelMM > jig) ? (float)d.s_fullLevelMM : 0.0f;
+  if (g_waxFoundThisRun && measured > 0.0f) return measured;
+  if (measured > 0.0f && full > 0.0f) return min(measured, full);
+  return max(measured, full);
 }
 
 // Wax surface depth used while lifting out: the depth just measured on the way down, or the Full Tank Level if
@@ -548,6 +554,9 @@ void processActiveDipping() {
       data.currentPhaseText = "Zeroing scale...";
       display.markPageChanged(true);
       display.renderCurrentPage();
+      // Let the jig stop swinging after the move to the top before taking the zero, otherwise the swing is
+      // baked into every later weight reading of this run
+      delay(max(500, data.s_weightDwell));
       scaleMgr.tare(10); // Auto-tare in RAM (10 fresh conversions) so current jig weight is zeroed out before Dip 1
       data.currentWeight = 0.0f;
 
@@ -579,7 +588,7 @@ void processActiveDipping() {
       float approachLevelMM = approachWaxLevelMM(data);
       bool waxKnown = (approachLevelMM > 0.0f);
       float baseTouchMM = waxKnown ? (approachLevelMM - (float)data.s_jigLength) : 0.0f;
-      // Start slowing down 15mm before the candle base reaches the tank height (Full Tank Level)
+      // Start slowing down 15mm before the candle base reaches the expected wax surface (see approachWaxLevelMM)
       float slowStartMM = waxKnown ? max(0.0f, baseTouchMM - 15.0f) : 0.0f;
 
       // The buoyancy allowance below needs the depth where the candles REALLY enter the wax, which is the measured
@@ -697,6 +706,7 @@ void processActiveDipping() {
 
       // Record the Z-position of the wax surface where the capacitive sensor triggered
       data.lastWaxLevelMM = data.currentPosition;
+      g_waxFoundThisRun = true; // Later dips of this run slow down using this measured level
       prefs.putFloat("wax_lvl", data.lastWaxLevelMM);
 
       currentDipPhase = DIP_PHASE_HOLDING;
@@ -993,6 +1003,7 @@ void loop() {
   data.scaleFactor = scaleMgr.getScaleFactor();
   data.limitSwitchOn = sensorMgr.isTopLimitHit();
   data.capSensorOn = sensorMgr.isCapSensorTriggered();
+  data.isMotorEnabled = motorMgr.isMotorEnabled(); // Any move re-energises the coils, so mirror the real state
 
   // Handle captive portal DNS & HTTP requests when Wi-Fi setup portal is active
   if (data.portalActive) {
@@ -1354,6 +1365,7 @@ void loop() {
 
     case UI_EVENT_START_DIP:
       Serial.println("UI Event: Starting dipping process...");
+      g_waxFoundThisRun = false; // First dip of the new run uses the Full Tank Level
       motorMgr.stopMotor();
       // Make sure the coils are powered, then let the state machine home (if needed), park at the top
       // and auto-tare the scale before Dip 1.

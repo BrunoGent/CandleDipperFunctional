@@ -578,7 +578,7 @@ export default function App() {
                   </div>
                   <ul className="text-xs space-y-2 text-neutral-300">
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 6 (Cap Sensor)</span>
+                      <span className="text-neutral-400 font-mono">GPIO 10 (Cap Sensor)</span>
                       <span className="text-emerald-400 font-medium">Wax Surface Detector (PC817)</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
@@ -590,7 +590,7 @@ export default function App() {
                       <span className="text-neutral-200 font-medium">TMC2209 Step, Dir, Enable, UART</span>
                     </li>
                     <li className="flex items-start justify-between border-b border-neutral-900 pb-1.5">
-                      <span className="text-neutral-400 font-mono">GPIO 5, 10</span>
+                      <span className="text-neutral-400 font-mono">GPIO 5, 6</span>
                       <span className="text-amber-400 font-medium">HX711 Load Cell (DT/SCK, not GPIO 13)</span>
                     </li>
                     <li className="flex items-start justify-between">
@@ -725,7 +725,7 @@ export default function App() {
                   { name: 'platformio.ini', path: '/platformio.ini', type: 'Config', desc: 'PlatformIO CoreS3 board, espressif32 platform, and M5Unified library dependencies', code: platformioIniRaw, tab: 'platformio' },
                   { name: 'README.md', path: '/README.md', type: 'Doc', desc: 'Complete hardware schematics, PC817 wiring, pinout table, and build guide', code: readmeRaw, tab: 'readme' },
                   { name: 'main.cpp', path: '/src/main.cpp', type: 'C++ Main', desc: 'Dipping state machine (auto-home, buoyancy-aware collision check, fault alerts, Max Dips limit), Wi-Fi portal and NTP clock sync', code: mainCppRaw, tab: 'main' },
-                  { name: 'PinConfig.h', path: '/src/PinConfig.h', type: 'C++ Header', desc: 'Hardware GPIO definitions for the TMC2209, capacitive wax sensor, HX711 (clock on GPIO 10) and top limit switch', code: pinConfigRaw, tab: 'pinconfig' },
+                  { name: 'PinConfig.h', path: '/src/PinConfig.h', type: 'C++ Header', desc: 'Hardware GPIO definitions for the TMC2209, capacitive wax sensor, HX711 (clock on GPIO 6) and top limit switch', code: pinConfigRaw, tab: 'pinconfig' },
                   { name: 'SoundManager.h', path: '/src/SoundManager.h', type: 'C++ Header', desc: 'Dedicated I2S speaker melody synthesizer header (8 Startup, 10 Finish, 9 Alert tunes + Volume)', code: soundManagerHRaw, tab: 'sound' },
                   { name: 'SoundManager.cpp', path: '/src/SoundManager.cpp', type: 'C++ Source', desc: 'Compact Flash note arrays (Dota 2 Ready, SpongeBob, Adventure Time, Classical, Heavy Metal, Mario, Bird, Dog Bark)', code: soundManagerCppRaw, tab: 'soundcpp' },
                   { name: 'SensorManager.h', path: '/src/SensorManager.h', type: 'C++ Header', desc: 'Sensor class, polarity configuration and the time-qualified Debounce helper used by motion loops', code: sensorManagerHRaw, tab: 'sensor' },
@@ -1920,7 +1920,7 @@ export default function App() {
                   <li><strong>Upgraded Color Palettes:</strong> Refined <code className="text-emerald-300 font-mono">Ind. Slate</code>, <code className="text-emerald-300 font-mono">Bee Mine</code> (Espresso, Honeycomb &amp; Sage), and <code className="text-emerald-300 font-mono">Midnight</code> OLED themes.</li>
                   <li><strong>Ramped Motion:</strong> Step pulses now come from <code className="text-emerald-300 font-mono">FastAccelStepper</code> hardware timers with acceleration ramps, auto-homing and distance-limited moves.</li>
                   <li><strong>Safety Checks:</strong> Buoyancy-aware collision detection, <code className="text-emerald-300 font-mono">Max Dips</code> limit for Weight mode, and fault screens for a missing top switch or a wax sensor that is already triggered.</li>
-                  <li><strong>Scale Clock on GPIO 10:</strong> GPIO 13 is the CoreS3 speaker data line, so the HX711 clock wire must be moved to GPIO 10.</li>
+                  <li><strong>Scale Clock on GPIO 6:</strong> GPIO 13 is the CoreS3 speaker data line, so the HX711 clock wire must be moved to GPIO 6 (the wax sensor signal is on GPIO 10).</li>
                   <li><strong>Rewritten Manual:</strong> New <code className="text-emerald-300 font-mono">USER_MANUAL.md</code> matching the current firmware, with a print-ready Word copy in <code className="text-emerald-300 font-mono">docs/</code>.</li>
                   <li><strong>Simulator Note:</strong> The CoreS3 simulator on this site is an approximation and does not yet show the full-screen numpad, fault screens or Max Dips setting.</li>
                 </ul>
