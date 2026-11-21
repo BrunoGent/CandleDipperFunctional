@@ -10,14 +10,14 @@ All external sensors and actuators are routed through the M5Stack Proto Module u
 
 | Peripheral | CoreS3 GPIO | M-Bus Pin | Logic Level | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Wax Level Sensor** | **GPIO 6** | `G6` | 3.3V (Active-LOW) | PC817 Optocoupler from 24V NPN sensor |
+| **Wax Level Sensor** | **GPIO 10** | `G10` | 3.3V (Active-LOW) | PC817 Optocoupler from 24V NPN sensor |
 | **Top Limit Switch** | **GPIO 7** | `G7` | 3.3V (NC to GND) | Mechanical home switch (Open = HIGH = Hit) |
 | **Motor STEP** | **GPIO 8** | `G8` | 3.3V Pulse | TMC2209 Step pulse signal |
 | **Motor DIR** | **GPIO 9** | `G9` | 3.3V Level | TMC2209 Direction signal |
 | **Motor ENABLE** | **GPIO 17** | `G17` | 3.3V (Active-LOW) | TMC2209 Driver enable line |
 | **Motor UART** | **GPIO 18** | `G18` | 3.3V Single-Wire | TMC2209 UART (with 1kΩ inline resistor) |
 | **Load Cell DT** | **GPIO 5** | `G5` | 3.3V Serial Data | HX711 24-bit ADC Data line |
-| **Load Cell SCK** | **GPIO 10** | `G10` | 3.3V Serial Clock | HX711 24-bit ADC Clock line (not GPIO 13: that is the CoreS3 speaker data line) |
+| **Load Cell SCK** | **GPIO 6** | `G6` | 3.3V Serial Clock | HX711 24-bit ADC Clock line (not GPIO 13: that is the CoreS3 speaker data line) |
 
 ---
 
@@ -33,7 +33,7 @@ The capacitive sensor is a 12–24V DC **NPN Normally Open (NO)** sensor that sw
                    │   │ 2.2kΩ – 3.3kΩ Resistor (1W)
                    └─┬─┘
                      │
-           Pin 1 ┌───┴───┐ Pin 4 ─────► GPIO 6 & 10kΩ Pull-Up to +3.3V
+           Pin 1 ┌───┴───┐ Pin 4 ─────► GPIO 10 & 10kΩ Pull-Up to +3.3V
          [ Dot ] │ •     │ PC817
            Pin 2 └───┬───┘ Pin 3 ─────► CoreS3 GND (0V)
                      │
@@ -43,8 +43,8 @@ The capacitive sensor is a 12–24V DC **NPN Normally Open (NO)** sensor that sw
    BLUE  Wire of Sensor ──────► 24V Power Supply Ground (-)
 ```
 
-- **Idle (No Wax):** Black wire is floating $\rightarrow$ PC817 LED is OFF $\rightarrow$ 10kΩ resistor pulls **GPIO 6 to 3.3V (`HIGH`)**.
-- **Active (Wax Contact):** Sensor pulls Black wire to 0V $\rightarrow$ PC817 LED is ON $\rightarrow$ Phototransistor conducts $\rightarrow$ **GPIO 6 drops to 0.0V (`LOW`)**.
+- **Idle (No Wax):** Black wire is floating $\rightarrow$ PC817 LED is OFF $\rightarrow$ 10kΩ resistor pulls **GPIO 10 to 3.3V (`HIGH`)**.
+- **Active (Wax Contact):** Sensor pulls Black wire to 0V $\rightarrow$ PC817 LED is ON $\rightarrow$ Phototransistor conducts $\rightarrow$ **GPIO 10 drops to 0.0V (`LOW`)**.
 
 ---
 

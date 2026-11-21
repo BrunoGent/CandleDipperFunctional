@@ -711,7 +711,7 @@ void DisplayManager::drawMachineHub() {
   };
   static const char* machHints[7] = {
     "Jig length, Melt times, Max Z",
-    "Where the slow descent starts",
+    "Slow-down point for 1st dip",
     "Load Cell Cal & Col. Limit",
     "TMC2209 mode & Coil power",
     "Brightness & Color Palette",
@@ -746,8 +746,8 @@ void DisplayManager::drawWaxLevelPage() {
   canvas.setTextColor(TFT_WHITE, c_bg);
   canvas.setTextSize(1.4);
   canvas.drawString("Wax depth when the tank is full.", 10, 51);
-  canvas.drawString("Candles slow down 15 mm above it", 10, 67);
-  canvas.drawString("and enter the wax gently.", 10, 83);
+  canvas.drawString("First dip slows 15 mm above it,", 10, 67);
+  canvas.drawString("then the measured level is used.", 10, 83);
 
   // Current value card (y = 94..122)
   canvas.fillRoundRect(10, 94, 300, 28, 8, c_outline);

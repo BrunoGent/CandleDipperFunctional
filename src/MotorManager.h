@@ -108,7 +108,7 @@ public:
   static const float ACCEL_MM_S2;             // Ramp rate for every move
   static const float TOP_APPROACH_ZONE_MM;    // Within this distance of the top rest position...
   static const float TOP_APPROACH_SPEED_MMPS; // ...upward moves are limited to this speed
-  static const float UNHOMED_MAX_SPEED_MMPS;  // Upward speed cap while the switch position is unknown (jogging)
+  static const float UNHOMED_MAX_SPEED_MMPS;  // Upward speed cap for every move while the switch position is unknown
   static const float ABS_MAX_TRAVEL_MM;       // Hard cap on any single move when no soft limit is set
 
 private:

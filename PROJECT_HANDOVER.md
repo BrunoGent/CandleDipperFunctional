@@ -23,16 +23,16 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 
 | Function | Pin Name in Code | ESP32-S3 GPIO | M-Bus Pin | Electrical Level / Interface | Circuit Details |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Wax Level Proximity** | `PIN_WAX_LEVEL_SENS` | **GPIO 6** | `G6` | 3.3V CMOS (Active-LOW) | PC817 Optocoupler with 10kΩ pull-up to +3.3V |
+| **Wax Level Proximity** | `PIN_WAX_LEVEL_SENS` | **GPIO 10** | `G10` | 3.3V CMOS (Active-LOW) | PC817 Optocoupler with 10kΩ pull-up to +3.3V |
 | **Top Carriage Limit** | `PIN_TOP_LIMIT_SW` | **GPIO 7** | `G7` | 3.3V CMOS (Active-HIGH) | Microswitch, Normally Closed (NC) to GND |
 | **Stepper STEP** | `PIN_MOTOR_STEP` | **GPIO 8** | `G8` | 3.3V Logic Pulse | TMC2209 Step pin (FastAccelStepper hardware-timed pulses with acceleration ramps) |
 | **Stepper DIR** | `PIN_MOTOR_DIR` | **GPIO 9** | `G9` | 3.3V Logic Level | HIGH = UP (towards limit), LOW = DOWN |
 | **Stepper ENABLE** | `PIN_MOTOR_ENABLE` | **GPIO 17** | `G17` | 3.3V Active-LOW | LOW = Energized coils, HIGH = Driver sleep |
 | **Stepper UART** | `PIN_MOTOR_UART` | **GPIO 18** | `G18` | 3.3V Single-Wire Half-Duplex | `Serial2` @ 115200 baud with 1kΩ inline resistor |
 | **Load Cell DT (Data)** | `PIN_HX711_DT` | **GPIO 5** | `G5` | 3.3V Serial Bit-Bang | HX711 24-bit ADC Data Out |
-| **Load Cell SCK (Clock)** | `PIN_HX711_SCK` | **GPIO 10** | `G10` | 3.3V Serial Clock | Clock pulse train for 24-bit readout + Gain 128 |
+| **Load Cell SCK (Clock)** | `PIN_HX711_SCK` | **GPIO 6** | `G6` | 3.3V Serial Clock | Clock pulse train for 24-bit readout + Gain 128 |
 
-> **Do not use GPIO 13 for the HX711 clock.** On the CoreS3 / CoreS3 SE, GPIO 13 is the I2S audio data line to the built-in speaker amplifier. As soon as the speaker is started the audio driver owns that pin, the HX711 receives no clock, and the scale reads 0 g permanently.
+> **Do not use GPIO 13 for the HX711 clock** (it is on GPIO 6). On the CoreS3 / CoreS3 SE, GPIO 13 is the I2S audio data line to the built-in speaker amplifier. As soon as the speaker is started the audio driver owns that pin, the HX711 receives no clock, and the scale reads 0 g permanently.
 
 ---
 
@@ -41,7 +41,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 #### A. Wax Level Sensor & Optocoupler Circuit
 * **Sensor Model:** Heschen `LJC38A4-20-Z/BX` (12–24V DC, 300mA, NPN Normally Open).
 * **Isolation IC:** PC817 Optocoupler (4-pin DIP).
-* **Behavior:** When the sensor detects molten wax, its internal open-collector NPN transistor conducts to GND (Blue wire), energizing the PC817 LED and pulling GPIO 6 to 0V.
+* **Behavior:** When the sensor detects molten wax, its internal open-collector NPN transistor conducts to GND (Blue wire), energizing the PC817 LED and pulling GPIO 10 to 0V.
 
 ```
                               +24V Power Supply (+)
@@ -55,7 +55,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
              ┌─────────────────┐       │
    Pin 1 (A) │ [Dot] •       4 │───────┴─── Pin 4 (Collector)
              │   LED     Photot│           │
-   Pin 2 (K) │                 3 │─────┐     ├────────► GPIO 6 (PIN_WAX_LEVEL_SENS)
+   Pin 2 (K) │                 3 │─────┐     ├────────► GPIO 10 (PIN_WAX_LEVEL_SENS)
              └─────────────────┘     │     │
                │                     │    ┌┴┐
                │                     │    │ │ 10kΩ Pull-Up Resistor
@@ -73,7 +73,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 ```
 
 #### Truth Table:
-| Machine Condition | Heschen Sensor State | PC817 LED (Pins 1–2) | Voltage at GPIO 6 (to GND) | ESP32 Logic | Action |
+| Machine Condition | Heschen Sensor State | PC817 LED (Pins 1–2) | Voltage at GPIO 10 (to GND) | ESP32 Logic | Action |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **No Wax (Idle / Lowering)** | Open Circuit / High-Z | 0.0V (Off) | **3.3V – 3.4V** | `HIGH` | Carriage continues lowering |
 | **Wax Contact (Surface Hit)** | Closed to 24V GND | ~1.1V – 1.2V (On) | **0.05V – 0.15V** | `LOW` | **Stop lowering immediately & dwell** |
@@ -146,7 +146,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 
 | File | Purpose | Verification Status |
 | :--- | :--- | :--- |
-| `src/PinConfig.h` | Master GPIO definitions (HX711 clock moved to GPIO 10) | ⚠️ Needs the SCK wire moved, then bench check |
+| `src/PinConfig.h` | Master GPIO definitions (HX711 clock on GPIO 6, wax sensor on GPIO 10) | ⚠️ Needs the SCK wire moved, then bench check |
 | `src/SensorManager.h/.cpp` | 3-sample glitch filter for limit switch & PC817 optocoupler, plus a 2–3 ms `Debounce` helper used by all motion loops | ⚠️ Compiles; debounce not yet bench-tested |
 | `src/MotorManager.h/.cpp` | TMC2209 UART driver, StealthChop2 switching, ramped step generation (FastAccelStepper), 4-stage homing & dipping | ⚠️ Compiles; ramped motion not yet bench-tested |
 | `src/ScaleManager.h/.cpp` | Non-blocking 10Hz HX711 bit-bang reader, EMA vibration filter, RAM tare, NVS calibration factor | ⚠️ Unchanged code; could not have worked on GPIO 13 once sound was added |
@@ -162,7 +162,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 ### 3.1 Resolved During Prior Sessions
 1. **4N35 Optocoupler Incomplete Saturation (1.03V Drop):**
    * *Cause:* The older 4N35 had a low Current Transfer Ratio (CTR ~40%). An under-driven 24V LED side prevented the phototransistor from sinking through a 10kΩ pull-up, holding GPIO 6 at 1.03V. Because ESP32-S3 $V_{IL} \le 0.825\text{V}$, the CPU could not register a digital `LOW`.
-   * *Resolution:* Replaced with a high-CTR **PC817 optocoupler** (CTR 100%–300%) with verified 10kΩ pull-up on GPIO 6 and $2.7\text{k}\Omega$ on the 24V LED side.
+   * *Resolution:* Replaced with a high-CTR **PC817 optocoupler** (CTR 100%–300%) with verified 10kΩ pull-up on GPIO 10 and $2.7\text{k}\Omega$ on the 24V LED side.
 2. **Reverse Diode Burnout:**
    * *Cause:* A previously tested optocoupler had its Pins 1 and 2 open-circuit due to exceeding maximum reverse voltage ($V_R > 6\text{V}$) during bench testing.
    * *Resolution:* Proper polarity confirmed with multimeter diode test; series resistor prevents overcurrent.
@@ -171,7 +171,7 @@ All hardware signals are consolidated in `src/PinConfig.h`:
    * *Resolution:* Changed to `pinMode(PIN_WAX_LEVEL_SENS, INPUT)` (pure high-impedance).
 
 ### 3.2 Resolved in the November 2026 Code Review (not yet bench-tested)
-1. **HX711 clock on GPIO 13 clashed with the speaker.** GPIO 13 is the CoreS3 I2S data line to the speaker amplifier, so the scale stopped reading as soon as `SoundManager` started. Clock moved to **GPIO 10**; the wire must be moved too.
+1. **HX711 clock on GPIO 13 clashed with the speaker.** GPIO 13 is the CoreS3 I2S data line to the speaker amplifier, so the scale stopped reading as soon as `SoundManager` started. Clock moved to **GPIO 6** (the wax sensor signal is on **GPIO 10**); the wire must be moved too.
 2. **No acceleration.** Moves started and stopped at full speed from `delayMicroseconds()` loops that were also interrupted by touch polling and redraws. `MotorManager` now uses **FastAccelStepper** with ramps (`ACCEL_MM_S2`, 300 mm/s²) and slows for the last 12 mm before the top switch.
 3. **Pause screen made the carriage oscillate.** The retract condition was true again after every retract. It now retracts once per pause.
 4. **False collisions from buoyancy.** Candles immersed in molten wax weigh less. The collision check remains active for the whole stroke but allows for the wax weight already on the candles once they are immersed.
@@ -183,11 +183,12 @@ All hardware signals are consolidated in `src/PinConfig.h`:
 10. **Sensor noise:** motion loops require 2–3 ms of continuous signal before reacting.
 11. **Smaller items:** NTP sync whenever Wi-Fi connects; RTC read once a second; brightness/volume saved on finger release; captive-portal redirect; pause buttons renamed RESUME / ABORT; Manual banner no longer overlaps.
 
-12. **Descent slow-down no longer depends on the measured wax level.** New **Full Tank Level** setting (`s25`, SETUP > Machine Setup > Wax Level), typed in or measured with the wax sensor (arm lowers at 15 mm/s; paper, card or a hand can stand in for the surface). The descent now always slows to Immerse Speed when the bottom of the candles is 15 mm above that height, on every dip. If it is not set, the last measured level is used; if neither is known, the descent runs at Immerse Speed throughout. `lastWaxLevelMM` is still measured every dip and used for lift-out, drip pause, Melt Bases, Clean Jig, the buoyancy allowance and the low-wax warning. Trade-off: as the wax level drops, each descent spends longer at Immerse Speed.
+12. **First dip with no fresh wax level.** New **Full Tank Level** setting (`s25`, SETUP > Machine Setup > Wax Level), typed in or measured with the wax sensor (arm lowers at 15 mm/s; a hand or damp cloth can stand in for the surface). On the first dip of a run the descent slows 15 mm before the candle bottoms reach the shallower of this value and the saved wax level; from the second dip it uses the level measured on the previous dip (the tank is not topped up mid-run). If no level is known, the first descent runs at Immerse Speed throughout.
+13. **Housekeeping before testing:** every upward move is capped at 25 mm/s until the top switch has been found (homing seek, retract after a fault, manual jog); the scale is zeroed only after the jig has settled at the top; the Motor Power card now reflects coils re-enabled by a move.
 
 ### 3.3 Items Requiring Physical Bench Validation
 1. **PC817 Voltage Verification Under Load:**
-   * Before running the motor, confirm with a multimeter that GPIO 6 reads **3.3V at idle** and drops cleanly to **$\le 0.15\text{V}$** when touching the capacitive sensor face.
+   * Before running the motor, confirm with a multimeter that GPIO 10 reads **3.3V at idle** and drops cleanly to **$\le 0.15\text{V}$** when touching the capacitive sensor face.
 2. **Top Limit Backoff Distance Tuning:**
    * In `MotorManager::performHoming()`, Stage 4 applies a 2.0 mm downward back-off to release physical switch pressure. If your physical switch has a long actuator travel, verify 2.0 mm fully opens the contacts without leaving the carriage loose.
 3. **HX711 Bit-Bang Interrupt Window:**
@@ -221,7 +222,7 @@ pio device monitor -b 115200
 - Click the top limit switch: ensure serial monitor logs `Top Limit: HIT`.
 
 ### Step 3: Homing Calibration Test
-- **First move the HX711 clock wire from GPIO 13 to GPIO 10** and confirm the weight on the MANUAL screen responds, then calibrate.
+- **First move the HX711 clock wire from GPIO 13 to GPIO 6** and confirm the weight on the MANUAL screen responds, then calibrate.
 - Place the carriage in the middle of travel, with no jig fitted.
 - Trigger **HOME** from the MANUAL screen.
 - Verify:

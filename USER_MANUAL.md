@@ -43,7 +43,7 @@ Two candle profiles, Slim and Standard, each have their own target weight and di
 Position is shown in millimetres. 0 mm is the top rest position, 2 mm below the top switch. Larger numbers are further down. The machine only knows its position after it has found the top switch (homing). It homes by itself whenever it needs to, so you do not normally have to do it by hand.
 
 - Wax level: the position at which the wax sensor last touched the wax. It is measured again on every dip, so it follows the level down as wax is used.
-- Full tank level: the wax depth when the tank is full. You set it once (section 8.3). The arm always starts moving slowly when the bottom of the candles is 15 mm above this height.
+- Full tank level: the wax depth when the tank is full. You set it once (section 8.3). On the first dip of a run, the arm slows down when the bottom of the candles is 15 mm above this height.
 - Jig length: the distance from the wax sensor down to the bottom of the candles. You enter this once (section 8.2).
 - Base position: wax level minus jig length. This is where the bottoms of the candles meet the wax surface.
 
@@ -76,7 +76,7 @@ Settings are saved immediately and are kept when the power is off.
 3. Go to MANUAL and tap HOME. The arm rises to the top switch, backs off, approaches again slowly and settles at 0 mm.
 4. Calibrate the scale (section 9) if this has not been done, or if the load cell or its wiring has changed.
 5. Check the Jig Below Sens and Soft Limit settings match your jig and pot (section 8.2).
-6. Set the Full Tank Level (section 8.3). Without it the arm moves at Immerse Speed the whole way down.
+6. Set the Full Tank Level (section 8.3). Without it, the first dip may run at Immerse Speed the whole way down.
 7. With the wax fully molten, clip on the empty jig and run a test dip with DIP BOT on the MANUAL screen (section 6.3). This also records the wax level.
 
 ## 6. Manual screen
@@ -92,7 +92,7 @@ The arrow buttons latch. Tap once to start moving and tap again to stop. You do 
 - Tapping the opposite arrow reverses direction.
 - The - and + buttons between the arrows set the speed from 5 to 100 mm/s in steps of 5.
 - UP stops by itself at the top. DOWN stops by itself when the wax sensor touches wax or at the Soft Limit.
-- Until the arm has been homed, upward speed is limited to 20 mm/s because the machine does not yet know how close the top switch is.
+- Until the arm has been homed, upward speed is limited to 25 mm/s because the machine does not yet know how close the top switch is.
 
 > **Note:** Because the arrows latch, the arm keeps moving until you stop it or it reaches a limit. Stay at the screen while it moves.
 
@@ -122,7 +122,7 @@ Sets the weight reading to zero with whatever is hanging on the arm. The zero is
 | Stage | What the machine does |
 | --- | --- |
 | Prepare | Homes if it needs to, parks at the top and zeroes the scale, so that only added wax is weighed. |
-| Lowering | Moves down at Down Speed. Just before the candle bottoms reach the wax it slows to Immerse Speed, and continues until the wax sensor touches the surface. The slow-down always starts 15 mm before the bottom of the candles reaches the Full Tank Level, however far the wax has dropped. If the Full Tank Level is not set, the last measured wax level is used instead; if neither is known, the arm moves at Immerse Speed the whole way down. |
+| Lowering | Moves down at Down Speed. Just before the candle bottoms reach the wax it slows to Immerse Speed, and continues until the wax sensor touches the surface. On the first dip of a run the slow-down starts 15 mm before the bottom of the candles reaches the Full Tank Level (or the last saved wax level, if that is shallower). On later dips it uses the wax level measured on the previous dip. If no level is known at all, the first dip moves at Immerse Speed the whole way down. |
 | Holding | Stays in the wax for the 1st Dip Time on the first dip and the + Dips Time on later dips. |
 | Extracting | Lifts out at Extract Speed. If a drip pause is set, it stops at the Drip Offset for the Drip Time. Once the candles are clear it rises at Up Speed, slowing for the last few millimetres. |
 | Weighing | At the top it waits for the Weight Dwell, then weighs. |
@@ -194,9 +194,9 @@ Speeds can be set from 1 to 150 mm/s. The specification for this machine is up t
 
 ### 8.3 Full Tank Level (Machine Setup, Wax Level)
 
-This is the depth of the wax surface, in millimetres below the top rest position, when the tank is full. It decides where the arm slows down on the way into the wax: on every dip the arm moves quickly through the air and slows to Immerse Speed when the bottom of the candles is 15 mm above this height. The slow-down always starts at the same place, so every dip enters the wax in the same gentle way.
+This is the depth of the wax surface, in millimetres below the top rest position, when the tank is full. It is used on the first dip of each run, before the machine has touched the wax: the arm moves quickly through the air and slows to Immerse Speed when the bottom of the candles is 15 mm above this height (or above the last saved wax level, if that is shallower). From the second dip on, the machine uses the wax level it measured on the previous dip, because the tank is not topped up during a run.
 
-The machine still measures the real wax level on every dip. That measured level is used for lifting the candles out of the wax, the drip pause, Melt Bases, Clean Whole Jig and the low wax warning. It is not used to decide where to slow down.
+The machine measures the real wax level on every dip. That measured level sets the slow-down point for the next dip, and is also used for lifting the candles out of the wax, the drip pause, Melt Bases, Clean Whole Jig and the low wax warning.
 
 The Wax Level page has two options:
 
@@ -207,9 +207,9 @@ The Wax Level page has two options:
 
 If the sensor already reads WAX HIT before the move starts, or nothing is found before the Soft Limit, the alert tune plays and nothing is stored.
 
-- Set this to the HIGHEST level the wax will reach (a full tank). If the real wax is ever higher than the value, the candles reach it at full Down Speed.
-- As the wax is used up and its level drops, the candles spend longer at Immerse Speed on the way down. For example, if the wax has dropped 100 mm and Immerse Speed is 25 mm/s, every dip takes about 4 seconds longer. Top up the tank, or remeasure the value if you change the tank, the pot or the wax amount.
-- If the Full Tank Level is not set, the machine falls back to the last measured wax level. If no wax level has ever been measured either, the arm moves at Immerse Speed from the start. That is safe but slower.
+- Set this to the HIGHEST level the wax will reach (a full tank). If the real wax is ever higher than the value, the candles reach it at full Down Speed on the first dip.
+- If the wax is well below this level, only the first dip of a run spends longer at Immerse Speed (for example about 4 seconds for 100 mm at 25 mm/s). Remeasure the value if you change the tank, the pot or the wax amount.
+- On the first dip, if the Full Tank Level is not set, the machine falls back to the last measured wax level. If no wax level has ever been measured either, the arm moves at Immerse Speed from the start. That is safe but slower.
 
 ## 9. Calibrating the scale
 
@@ -270,13 +270,13 @@ The status bar on the DIP tab also shows '! LOW WAX' when the wax level is withi
 
 | Problem | Likely cause and fix |
 | --- | --- |
-| Weight always reads 0.0 g and calibration does nothing | The scale is not being read. Check the two scale signal wires and its 5 V supply. The scale clock must be on GPIO 10, not GPIO 13 (see the Project Explanation). |
+| Weight always reads 0.0 g and calibration does nothing | The scale is not being read. Check the two scale signal wires and its 5 V supply. The scale clock must be on GPIO 6, not GPIO 13 (see the Project Explanation). |
 | Motor buzzes or stalls when starting | Lower the speed. If it persists, the acceleration or motor current in the firmware needs adjusting. |
 | Arm does not move | Check 24 V is on and Motor Power is Enabled. |
 | UP arrow does nothing | The arm is already at the top (TOP HIT), or at 0 mm. |
 | DOWN arrow stops at once | The wax sensor is triggered (WAX HIT) or the Soft Limit has been reached. |
 | Run holds in mid-air | The wax sensor triggered early. Clean the sensor face and check its sensitivity adjustment. |
-| Every dip is slow on the way down | The wax has dropped well below the Full Tank Level, or the Full Tank Level is not set (the whole descent then runs at Immerse Speed). Remeasure the Full Tank Level (section 8.3) after topping up, or lower it to match your normal wax level. |
+| First dip is slow on the way down | The wax is well below the Full Tank Level, or no level is known (the whole first descent then runs at Immerse Speed). Later dips use the measured level and should be quicker. Set or remeasure the Full Tank Level (section 8.3). |
 | Clock shows 01/01/26 | The clock has never been set. Set up Wi-Fi (section 10). |
 | No sound | Check Volume is above 0 and the tune is not set to Off. |
 
